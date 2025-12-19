@@ -55,8 +55,9 @@ func (p *Plugin) Configure(cfg ai.PluginConfig) {
 
 // Run executes Claude Code with the given request.
 func (p *Plugin) Run(ctx context.Context, req ai.Request, stdout, stderr io.Writer) (*ai.Response, error) {
-	// Use PTY for interactive mode (no prompt and not print mode)
-	if req.Prompt == "" && !req.Print {
+	// Use PTY for interactive mode unless --print is requested
+	// Claude supports initial prompts while staying interactive
+	if !req.Print {
 		return p.runInteractive(ctx, req, stdout, stderr)
 	}
 	return p.runNonInteractive(ctx, req, stdout, stderr)
