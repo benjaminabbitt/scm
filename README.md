@@ -5,8 +5,14 @@ A CLI tool for managing context fragments and prompts for AI interactions. MLCM 
 ## Installation
 
 ```bash
-just build         # Build main app and generators
-just install       # Install to GOPATH/bin
+just install-local    # Build static binaries and install to ~/.local/bin
+just uninstall        # Remove binaries from ~/.local/bin
+```
+
+Or install to GOPATH/bin:
+
+```bash
+just install          # Install to $GOPATH/bin (requires Go)
 ```
 
 ## Quick Start
@@ -179,12 +185,65 @@ personas:
 
 ## Development
 
-```bash
-just test          # Run tests
-just fmt           # Format code
-just lint          # Lint code
-just clean         # Clean build artifacts
-```
+All development tasks use [just](https://github.com/casey/just) as a command runner.
+
+### Building
+
+| Command | Description |
+|---------|-------------|
+| `just build` | Build all binaries (main app + generators) |
+| `just build-mlcm` | Build only the main binary |
+| `just build-generators` | Build all generator binaries |
+| `just build-git-context` | Build git-context generator |
+| `just build-simple` | Build simple wrapper generator |
+| `just build-static` | Build static binaries (CGO_ENABLED=0, stripped) |
+| `just build-verbose` | Build all with verbose output |
+
+### Testing
+
+| Command | Description |
+|---------|-------------|
+| `just test` | Run all tests |
+| `just test-verbose` | Run tests with verbose output |
+| `just test-coverage` | Run tests with coverage report |
+| `just test-generator` | Test the git-context generator |
+
+### Code Quality
+
+| Command | Description |
+|---------|-------------|
+| `just fmt` | Format code with `go fmt` |
+| `just lint` | Lint code (requires [golangci-lint](https://golangci-lint.run/)) |
+
+### Dependencies
+
+| Command | Description |
+|---------|-------------|
+| `just deps` | Download dependencies (`go mod download`) |
+| `just tidy` | Tidy dependencies (`go mod tidy`) |
+
+### Installation
+
+| Command | Description |
+|---------|-------------|
+| `just install` | Install to `$GOPATH/bin` |
+| `just install-local` | Build static binaries and install to `~/.local/bin` |
+| `just uninstall` | Remove binaries from `~/.local/bin` |
+
+### Running
+
+| Command | Description |
+|---------|-------------|
+| `just run <args>` | Run the CLI via `go run` (e.g., `just run --help`) |
+| `just init` | Initialize `.mlcm` directory using built binary |
+| `just dry-run <prompt>` | Dry run with test fragments |
+| `just help` | Show CLI help |
+
+### Cleanup
+
+| Command | Description |
+|---------|-------------|
+| `just clean` | Remove build artifacts (`mlcm`, `bin/`, `go clean`) |
 
 ## Environment Variables
 

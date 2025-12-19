@@ -75,6 +75,11 @@ install-local: build-static
     cp mlcm ~/.local/bin/
     cp bin/mlcm-gen-* ~/.local/bin/
 
+# Uninstall from ~/.local/bin
+uninstall:
+    rm -f ~/.local/bin/mlcm
+    rm -f ~/.local/bin/mlcm-gen-*
+
 # Build static binaries
 build-static:
     CGO_ENABLED=0 go build -ldflags="-s -w" -o mlcm .
