@@ -25,13 +25,15 @@ mlcm run -f my-fragment -n "Preview"       # Dry run to preview context
 Initialize the `.mlcm` directory structure in the current directory.
 
 ```bash
-mlcm init                 # Create .mlcm in current directory
-mlcm init --no-fragments  # Skip copying context fragments
+mlcm init                        # Create .mlcm with all fragments
+mlcm init --skip-fragments       # Skip embedded fragments (copy ~/.mlcm only)
+mlcm init --skip-fragments=local # Skip ~/.mlcm fragments (copy embedded only)
+mlcm init --skip-fragments=both  # Skip all fragment copying
 ```
 
 Creates:
 - `config.yaml` - Configuration
-- `context-fragments/` - Context fragment files (copied from embedded + ~/.mlcm)
+- `context-fragments/` - Context fragment files
 - `prompts/` - Prompt templates
 
 Fragment sources (in order, later overwrites earlier):
