@@ -14,7 +14,7 @@ import (
 	"mlcm/resources"
 )
 
-var initNoFragments bool
+var skipFragments string
 
 var initCmd = &cobra.Command{
 	Use:   "init",
@@ -22,7 +22,16 @@ var initCmd = &cobra.Command{
 	Long: `Initialize a .mlcm directory in the current directory with:
   - context-fragments/  (for context fragment files)
   - prompts/            (for prompt templates)
-  - config.yaml         (for configuration)`,
+  - config.yaml         (for configuration)
+
+Fragment sources (in order, later overwrites earlier):
+  1. Embedded default fragments
+  2. ~/.mlcm/context-fragments/ (your personal fragments)
+
+Use --skip-fragments to control which sources are skipped:
+  --skip-fragments          Skip embedded fragments (default)
+  --skip-fragments=local    Skip ~/.mlcm fragments only
+  --skip-fragments=both     Skip all fragment copying`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		pwd, err := os.Getwd()
 		if err != nil {
@@ -58,15 +67,20 @@ func initMLCMDirectory(mlcmDir string) error {
 		return fmt.Errorf("failed to create prompts directory: %w", err)
 	}
 
-	// Copy fragments unless --no-fragments was specified
-	if !initNoFragments {
-		// First, copy embedded fragments
+	// Copy fragments based on --skip-fragments setting
+	skipEmbedded := skipFragments == "embedded" || skipFragments == "both"
+	skipLocal := skipFragments == "local" || skipFragments == "both"
+
+	// First, copy embedded fragments
+	if !skipEmbedded {
 		if err := resources.CopyFragments(fragmentsDir); err != nil {
 			return fmt.Errorf("failed to copy embedded fragments: %w", err)
 		}
 		fmt.Println("Copied embedded context fragments")
+	}
 
-		// Then, copy from ~/.mlcm (overwrites duplicates)
+	// Then, copy from ~/.mlcm (overwrites duplicates)
+	if !skipLocal {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return fmt.Errorf("failed to get home directory: %w", err)
@@ -174,5 +188,6 @@ func copyFile(src, dst string) error {
 func init() {
 	rootCmd.AddCommand(initCmd)
 
-	initCmd.Flags().BoolVar(&initNoFragments, "no-fragments", false, "Skip copying context fragments from ~/.mlcm")
+	initCmd.Flags().StringVar(&skipFragments, "skip-fragments", "", "Skip fragment sources: embedded (default), local, or both")
+	initCmd.Flags().Lookup("skip-fragments").NoOptDefVal = "embedded"
 }

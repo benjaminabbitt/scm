@@ -69,11 +69,17 @@ install:
     go install ./cmd/generators/git-context
     go install ./cmd/generators/simple
 
-# Build and install to ~/.local/bin
-install-local: build
+# Build static binaries and install to ~/.local/bin
+install-local: build-static
     mkdir -p ~/.local/bin
     cp mlcm ~/.local/bin/
     cp bin/mlcm-gen-* ~/.local/bin/
+
+# Build static binaries
+build-static:
+    CGO_ENABLED=0 go build -ldflags="-s -w" -o mlcm .
+    CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/mlcm-gen-git-context ./cmd/generators/git-context
+    CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/mlcm-gen-simple ./cmd/generators/simple
 
 # Show help
 help:
