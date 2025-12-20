@@ -129,16 +129,18 @@ func initHomeDirectory(mlcmDir string, personas []string) error {
 		fmt.Println("Copied all embedded context fragments")
 	}
 
+	// Always copy mlcm-tagged content (internal prompts/fragments)
+	if err := resources.CopyTaggedFragments(fragmentsDir, "mlcm"); err != nil {
+		return fmt.Errorf("failed to copy mlcm fragments: %w", err)
+	}
+	if err := resources.CopyTaggedPrompts(promptsDir, "mlcm"); err != nil {
+		return fmt.Errorf("failed to copy mlcm prompts: %w", err)
+	}
+
 	// Create config file with personas and generators
 	configPath := filepath.Join(mlcmDir, config.ConfigFileName+".yaml")
 	if err := writeHomeConfig(configPath, embeddedCfg, personas); err != nil {
 		return fmt.Errorf("failed to create config file: %w", err)
-	}
-
-	// Create .gitkeep for prompts directory
-	gitkeepPrompts := filepath.Join(promptsDir, ".gitkeep")
-	if err := os.WriteFile(gitkeepPrompts, []byte(""), 0644); err != nil {
-		return fmt.Errorf("failed to create .gitkeep: %w", err)
 	}
 
 	fmt.Printf("\nMLCM home initialized successfully!\n")
@@ -298,6 +300,14 @@ func initMLCMDirectory(mlcmDir string, personas []string) error {
 			}
 			fmt.Printf("Copied prompts from %s\n", homePrompts)
 		}
+	}
+
+	// Always copy mlcm-tagged content (internal prompts/fragments)
+	if err := resources.CopyTaggedFragments(fragmentsDir, "mlcm"); err != nil {
+		return fmt.Errorf("failed to copy mlcm fragments: %w", err)
+	}
+	if err := resources.CopyTaggedPrompts(promptsDir, "mlcm"); err != nil {
+		return fmt.Errorf("failed to copy mlcm prompts: %w", err)
 	}
 
 	// Create config file

@@ -279,3 +279,132 @@ func CopyPrompts(destDir string) error {
 		return fsys.WriteProtected(destPath, data)
 	})
 }
+
+// CopyTaggedFragments copies embedded fragments with the specified tag to the destination directory.
+// Fragment files are set to read-only to protect from accidental edits.
+func CopyTaggedFragments(destDir string, tag string) error {
+	return fs.WalkDir(fragmentsFS, "context-fragments", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		relPath, err := filepath.Rel("context-fragments", path)
+		if err != nil {
+			return err
+		}
+
+		if relPath == "." {
+			return nil
+		}
+
+		if d.IsDir() {
+			return os.MkdirAll(filepath.Join(destDir, relPath), 0755)
+		}
+
+		name := d.Name()
+
+		// Only process .yaml and .yml files (not .sha256 or .distilled.yaml)
+		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
+			return nil
+		}
+		if strings.HasSuffix(name, ".distilled.yaml") {
+			return nil
+		}
+
+		// Read file to check tags
+		data, err := fragmentsFS.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		// Parse YAML to check for tag
+		var frag yamlFragment
+		if err := yaml.Unmarshal(data, &frag); err != nil {
+			return nil // Skip files that don't parse
+		}
+
+		// Check if fragment has the required tag
+		hasTag := false
+		for _, t := range frag.Tags {
+			if strings.EqualFold(t, tag) {
+				hasTag = true
+				break
+			}
+		}
+		if !hasTag {
+			return nil
+		}
+
+		destPath := filepath.Join(destDir, relPath)
+
+		// Skip if file already exists
+		if _, err := os.Stat(destPath); err == nil {
+			return nil
+		}
+
+		return fsys.WriteProtected(destPath, data)
+	})
+}
+
+// CopyTaggedPrompts copies embedded prompts with the specified tag to the destination directory.
+// Prompt files are set to read-only to protect from accidental edits.
+func CopyTaggedPrompts(destDir string, tag string) error {
+	return fs.WalkDir(promptsFS, "prompts", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		relPath, err := filepath.Rel("prompts", path)
+		if err != nil {
+			return err
+		}
+
+		if relPath == "." {
+			return nil
+		}
+
+		if d.IsDir() {
+			return os.MkdirAll(filepath.Join(destDir, relPath), 0755)
+		}
+
+		name := d.Name()
+
+		// Only process .yaml and .yml files
+		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
+			return nil
+		}
+
+		// Read file to check tags
+		data, err := promptsFS.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		// Parse YAML to check for tag
+		var frag yamlFragment
+		if err := yaml.Unmarshal(data, &frag); err != nil {
+			return nil // Skip files that don't parse
+		}
+
+		// Check if prompt has the required tag
+		hasTag := false
+		for _, t := range frag.Tags {
+			if strings.EqualFold(t, tag) {
+				hasTag = true
+				break
+			}
+		}
+		if !hasTag {
+			return nil
+		}
+
+		destPath := filepath.Join(destDir, relPath)
+
+		// Skip if file already exists
+		if _, err := os.Stat(destPath); err == nil {
+			return nil
+		}
+
+		return fsys.WriteProtected(destPath, data)
+	})
+}
