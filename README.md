@@ -175,28 +175,6 @@ mlcm distill clean --home       # Clean ~/.mlcm distilled files
 
 Distillation creates `.distilled.yaml` files alongside originals and `.sha256` files to track changes. When `use_distilled: true` (default), the distilled versions are preferred.
 
-### `mlcm mcp`
-
-Run as an MCP (Model Context Protocol) server for AI agent integration.
-
-```bash
-mlcm mcp                        # Run local MCP server
-mlcm mcp --addr host:port       # Connect to remote fragment server
-```
-
-**Local tools provided:**
-- `list_fragments` - List available fragments
-- `get_fragment` - Get fragment content by name
-- `list_personas` - List configured personas
-- `get_persona` - Get persona configuration
-- `assemble_context` - Assemble context from fragments/tags
-- `list_prompts` - List saved prompts
-- `get_prompt` - Get prompt content
-
-**Remote tools (with `--addr`):**
-- `server_list_fragments`, `server_get_fragment`, `server_search_fragments`
-- `server_create_fragment`, `server_list_personas`, `server_get_persona`
-
 ### `--home` Flag
 
 The global `--home` flag operates on `~/.mlcm` instead of project directories:
@@ -280,6 +258,21 @@ Variables are filled from:
 
 Named collections of fragments, tags, generators, and variables.
 
+### Embedded Personas
+
+| Persona | Description | Fragments | Tags |
+|---------|-------------|-----------|------|
+| `developer` | Full development context | [communication](resources/context-fragments/general/communication.yaml), [tdd](resources/context-fragments/general/tdd.yaml), [code-quality](resources/context-fragments/general/code-quality.yaml), [just](resources/context-fragments/tools/just/just.yaml), [git](resources/context-fragments/tools/git/git.yaml), [documentation](resources/context-fragments/general/documentation.yaml), [problem-solving](resources/context-fragments/general/problem-solving.yaml), [pushback](resources/context-fragments/general/pushback.yaml), [security](resources/context-fragments/general/security.yaml) | — |
+| `go-developer` | Go development context | Same as developer | `golang` → [golang](resources/context-fragments/lang/golang/golang.yaml) |
+| `python-developer` | Python development context | Same as developer | `python` → [python](resources/context-fragments/lang/python/python.yaml) |
+| `rust-developer` | Rust development context | Same as developer | `rust` → [rust](resources/context-fragments/lang/rust/rust.yaml) |
+| `typescript-developer` | TypeScript development context | Same as developer | `typescript` → [typescript](resources/context-fragments/lang/typescript/typescript.yaml) |
+| `reviewer` | Code review with all perspectives | [communication](resources/context-fragments/general/communication.yaml), [security](resources/context-fragments/general/security.yaml) | `review` → [architect](resources/context-fragments/personas/architect/architect.yaml), [junior-dev](resources/context-fragments/personas/junior-dev/junior-dev.yaml), [domain-expert](resources/context-fragments/personas/domain-expert/domain-expert.yaml), [concurrency](resources/context-fragments/personas/concurrency/concurrency.yaml) |
+| `git-aware` | Context with git repository info | [git](resources/context-fragments/tools/git/git.yaml) | — (+ `git-context` generator) |
+| `prototype` | Prototype mode - no backwards compatibility | [prototype](resources/context-fragments/patterns/prototype/prototype.yaml), [communication](resources/context-fragments/general/communication.yaml), [tdd](resources/context-fragments/general/tdd.yaml), [code-quality](resources/context-fragments/general/code-quality.yaml) | — |
+
+### Persona Definition
+
 ```yaml
 personas:
   go-developer:
@@ -294,19 +287,14 @@ personas:
       - git-context
     variables:
       language: go
-
-  security-reviewer:
-    description: Security-focused code review
-    tags:
-      - security
-    fragments:
-      - general/security
 ```
 
-Use personas to quickly switch context:
+### Usage
+
 ```bash
 mlcm run -p go-developer "implement error handling"
-mlcm run -p security-reviewer "audit for injection vulnerabilities"
+mlcm run -p prototype "build this feature correctly, no legacy support"
+mlcm run -p reviewer "review this pull request"
 ```
 
 ## Generators
@@ -432,25 +420,6 @@ mlcm run "prompt"                  # Use default plugin
 mlcm run -P gemini "prompt"        # Override for single command
 ```
 
-## Fragment Server
-
-MLCM includes an optional gRPC server for centralized fragment management.
-
-### Storage Backends
-
-- **MongoDB** - `STORAGE_TYPE=mongodb`
-- **DynamoDB** - `STORAGE_TYPE=dynamodb`
-- **Firestore** - `STORAGE_TYPE=firestore`
-
-### Deployment
-
-```bash
-just server-run                    # Run locally
-just server-docker                 # Build Docker image
-just server-deploy-cloudrun        # Deploy to Cloud Run
-just lambda-build                  # Build AWS Lambda package
-```
-
 ## Development
 
 All development tasks use [just](https://github.com/casey/just) as a command runner.
@@ -487,15 +456,6 @@ All development tasks use [just](https://github.com/casey/just) as a command run
 | `just install-local` | Build static binaries and install to `~/.local/bin` |
 | `just uninstall` | Remove binaries from `~/.local/bin` |
 
-### Server
-
-| Command | Description |
-|---------|-------------|
-| `just server-build` | Build server binary |
-| `just server-run` | Run server locally |
-| `just server-docker` | Build Docker image |
-| `just lambda-build` | Build AWS Lambda package |
-
 ### Cleanup
 
 | Command | Description |
@@ -512,7 +472,6 @@ All development tasks use [just](https://github.com/casey/just) as a command run
 │   ├── fragment.go         # mlcm fragment
 │   ├── persona.go          # mlcm persona
 │   ├── distill.go          # mlcm distill
-│   ├── mcp.go              # mlcm mcp
 │   └── generators/         # Built-in generators
 ├── internal/
 │   ├── config/             # Configuration loading
@@ -521,15 +480,10 @@ All development tasks use [just](https://github.com/casey/just) as a command run
 │   │   ├── claudecode/     # Claude Code plugin
 │   │   └── gemini/         # Gemini plugin
 │   └── ...
-├── resources/              # Embedded defaults
-│   ├── context-fragments/  # Default fragments
-│   ├── prompts/            # Default prompts
-│   └── config.yaml         # Default config
-└── server/                 # gRPC fragment server
-    ├── proto/              # Protocol buffers
-    ├── service/            # gRPC service
-    ├── storage/            # Storage backends
-    └── cmd/                # Server entry points
+└── resources/              # Embedded defaults
+    ├── context-fragments/  # Default fragments
+    ├── prompts/            # Default prompts
+    └── config.yaml         # Default config
 ```
 
 ## Environment Variables
@@ -539,9 +493,6 @@ All development tasks use [just](https://github.com/casey/just) as a command run
 | `MLCM_VERBOSE=1` | Enable verbose logging |
 | `EDITOR` | Fallback editor |
 | `VISUAL` | Preferred over `EDITOR` |
-| `STORAGE_TYPE` | Server storage backend |
-| `MONGODB_URI` | MongoDB connection string |
-| `AWS_REGION` | AWS region for DynamoDB |
 
 ## License
 
