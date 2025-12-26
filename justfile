@@ -4,12 +4,16 @@ default: build
 # Get version from versionator (with v prefix)
 version := `versionator version -t "{{Prefix}}{{MajorMinorPatch}}"`
 
+# Validate fragment YAML files against JSON schema
+validate:
+    go run ./cmd/validate
+
 # Distill resources before packaging
 distill-resources:
     go run . distill --resources --force
 
 # Build all binaries (main app + generators)
-build: distill-resources build-mlcm build-generators
+build: validate distill-resources build-mlcm build-generators
 
 # Build the main binary
 build-mlcm:
@@ -83,7 +87,7 @@ uninstall:
     rm -f ~/.local/bin/mlcm-gen-*
 
 # Build static binaries
-build-static:
+build-static: validate distill-resources
     CGO_ENABLED=0 go build -ldflags="-s -w -X mlcm/cmd.Version={{version}}" -o mlcm .
     CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/mlcm-gen-git-context ./cmd/generators/git-context
     CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/mlcm-gen-simple ./cmd/generators/simple
