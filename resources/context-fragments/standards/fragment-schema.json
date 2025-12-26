@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mlcm.dev/schemas/fragment.json",
+  "title": "MLCM Context Fragment",
+  "description": "Schema for MLCM context fragment YAML files",
+  "type": "object",
+  "required": ["content"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Schema version for the fragment format",
+      "examples": ["1.0"]
+    },
+    "author": {
+      "type": "string",
+      "description": "Who created or maintains this fragment",
+      "examples": ["username", "team-name"]
+    },
+    "tags": {
+      "type": "array",
+      "description": "Categorization tags for filtering and persona assembly",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true,
+      "examples": [["golang", "code-style"], ["review", "security"]]
+    },
+    "variables": {
+      "type": "array",
+      "description": "Template variable names referenced in content via {{name}}",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$"
+      },
+      "uniqueItems": true,
+      "examples": [["project_name", "language"]]
+    },
+    "notes": {
+      "type": "string",
+      "description": "Human-readable documentation (NOT sent to AI). Use for usage guidance, caveats, when to use/avoid."
+    },
+    "content": {
+      "type": "string",
+      "description": "The context content sent to the AI. Markdown format. Supports {{variable}} substitution.",
+      "minLength": 1
+    },
+    "var_values": {
+      "type": "object",
+      "description": "Variable values output by generators. Maps variable names to their values.",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

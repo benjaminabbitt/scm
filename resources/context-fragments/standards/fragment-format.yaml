@@ -113,6 +113,37 @@ content: |
   └── standards/        # Format standards and documentation
   ```
 
+  ## JSON Schema Validation
+
+  A JSON Schema is available for validating fragment files:
+
+  - **Schema file**: `standards/fragment-schema.json`
+  - **Schema ID**: `https://mlcm.dev/schemas/fragment.json`
+  - **Draft**: JSON Schema 2020-12
+
+  ### Editor Integration
+
+  VS Code with YAML extension:
+  ```yaml
+  # yaml-language-server: $schema=./standards/fragment-schema.json
+  content: |
+    Your context here
+  ```
+
+  ### CLI Validation
+
+  Using `yq` and `ajv`:
+  ```bash
+  yq -o json fragment.yaml | ajv validate -s fragment-schema.json
+  ```
+
+  Using Python `jsonschema`:
+  ```bash
+  python -c "import yaml, jsonschema, json; \
+    jsonschema.validate(yaml.safe_load(open('fragment.yaml')), \
+    json.load(open('fragment-schema.json')))"
+  ```
+
   ## Best Practices
 
   1. **One concern per fragment** - Keep fragments focused
@@ -120,3 +151,4 @@ content: |
   3. **Document with notes** - Explain when to use/avoid
   4. **Prefer markdown** - Content should be well-formatted markdown
   5. **Test with dry-run** - Use `mlcm run -n` to preview assembled context
+  6. **Validate with schema** - Use JSON Schema for CI/CD validation
