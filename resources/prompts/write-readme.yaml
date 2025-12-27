@@ -1,4 +1,4 @@
-version: 1.0
+version: "1.0"
 tags:
     - documentation
     - readme
@@ -44,5 +44,23 @@ content: |-
     - Include a "Why this tool?" section if similar tools exist
     - Avoid marketing language; be direct and technical
 content_hash: sha256:39309db32877e5ad44ee81fea0ffd1abdc2004eda859b6dd11ccc99b253dce57
-distilled: "The README is well-organized and follows the requested structure:\n1. ✅ Project Name & One-liner (line 1-3)\n2. ✅ The Problem (line 5)\n3. ✅ The Solution (line 9)\n4. ✅ Quick Start (line 18)\n5. ✅ Usage Examples (line 33)\n6. ✅ Configuration (line 100) \n7. ✅ Development (line 423 - at the end)\n\nThe only change needed was updating the stale reference to `init.go` → `copy.go` in the project structure section. The README was already in good shape, matching the requested structure and reflecting the current codebase state.\n\n**Summary of changes made:**\n- Updated project structure reference from `init.go` to `copy.go` (line 469) to reflect that the `init` command was replaced by `copy`"
+distilled: |-
+    Write/update README.md for developers.
+
+    Structure (order matters):
+    1. Name & one-liner
+    2. Problem - why care?
+    3. Solution - how it helps
+    4. Quick Start - install, config, first cmd
+    5. Usage Examples - common cases w/ commands
+    6. Configuration - key settings
+    7. Development - build/test/contribute (last)
+
+    Don't: list file structure, be verbose
+
+    Updates: preserve existing unless conflicts; update changed features; keep author voice; add new sections; reorganize to structure above
+
+    Git history: check log/diffs for changes; small README edits = human refinements; large rewrites = generated; use commit msgs for context
+
+    Guidelines: value first; concise (bullets/code); examples > descriptions; dev docs last; "Why this?" if alternatives exist; no marketing
 distilled_by: claude-code
