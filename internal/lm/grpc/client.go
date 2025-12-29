@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -92,7 +93,7 @@ func NewPluginClient(cmd string, args []string) (*PluginClient, error) {
 	grpcClient, ok := raw.(*GRPCClient)
 	if !ok {
 		client.Kill()
-		return nil, err
+		return nil, fmt.Errorf("unexpected plugin type: %T", raw)
 	}
 
 	return &PluginClient{

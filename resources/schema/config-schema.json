@@ -1,5 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+
   "$id": "https://scm.dev/schemas/config.json",
   "title": "SCM Configuration",
   "description": "Schema for SCM config.yaml files",
@@ -14,11 +15,6 @@
       "type": "object",
       "description": "Language model plugin configuration",
       "properties": {
-        "default_plugin": {
-          "type": "string",
-          "description": "Default LM plugin to use",
-          "examples": ["claude-code", "gemini"]
-        },
         "plugin_paths": {
           "type": "array",
           "description": "Paths to search for external plugin binaries",
@@ -33,6 +29,15 @@
           "additionalProperties": {
             "type": "object",
             "properties": {
+              "default": {
+                "type": "boolean",
+                "description": "If true, this is the default plugin"
+              },
+              "model": {
+                "type": "string",
+                "description": "Default model to use with this plugin",
+                "examples": ["opus", "sonnet", "gpt-4"]
+              },
               "binary_path": {
                 "type": "string",
                 "description": "Path to the plugin binary (optional, uses PATH if empty)"
@@ -79,24 +84,8 @@
     },
     "defaults": {
       "type": "object",
-      "description": "Default settings applied when no explicit values are specified",
+      "description": "Default settings. Note: To default fragments, add them to a profile and mark that profile as default.",
       "properties": {
-        "profiles": {
-          "type": "array",
-          "description": "Default profiles to load when none is specified",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "fragments": {
-          "type": "array",
-          "description": "Fragments always included in context",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
         "generators": {
           "type": "array",
           "description": "Generators always run",
@@ -145,6 +134,10 @@
       "additionalProperties": {
         "type": "object",
         "properties": {
+          "default": {
+            "type": "boolean",
+            "description": "If true, this profile is loaded by default when no profile is specified"
+          },
           "description": {
             "type": "string",
             "description": "Human-readable description of this profile"

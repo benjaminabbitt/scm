@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	"github.com/benjaminabbitt/scm/internal/config"
 )
@@ -13,8 +12,6 @@ import (
 // Version is set at build time via ldflags
 // Example: go build -ldflags "-X scm/cmd.Version=v1.0.0"
 var Version = "dev"
-
-var cfgFile string
 
 // ExitError is returned when a command needs to exit with a specific code.
 // This allows deferred cleanup to run before the process exits.
@@ -111,26 +108,8 @@ func shouldDefaultToRun(args []string) bool {
 }
 
 func init() {
-	cobra.OnInitialize(initConfig)
-
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.scm.yaml)")
-}
-
-func initConfig() {
-	if cfgFile != "" {
-		viper.SetConfigFile(cfgFile)
-	} else {
-		home, err := os.UserHomeDir()
-		cobra.CheckErr(err)
-
-		viper.AddConfigPath(home)
-		viper.SetConfigType("yaml")
-		viper.SetConfigName(".scm")
-	}
-
-	viper.AutomaticEnv()
-
-	if err := viper.ReadInConfig(); err == nil {
-		fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
-	}
+	// Config is loaded via internal/config.Load() which handles the hierarchy:
+	// 1. Project .scm/config.yaml
+	// 2. Home ~/.scm/config.yaml
+	// 3. Embedded resources
 }

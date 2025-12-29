@@ -435,7 +435,67 @@ Run as MCP (Model Context Protocol) server over stdio.
 scm mcp
 ```
 
-Available MCP tools: `list_fragments`, `get_fragment`, `list_profiles`, `get_profile`, `set_profile`, `assemble_context`, `list_prompts`, `get_prompt`
+Available MCP tools: `list_fragments`, `get_fragment`, `list_profiles`, `get_profile`, `assemble_context`, `list_prompts`, `get_prompt`
+
+## MCP Server Setup
+
+SCM can run as an MCP server, allowing AI assistants like Claude Code to access your context fragments and profiles directly during conversations.
+
+### Claude Code Configuration
+
+Add SCM to your Claude Code MCP settings in `~/.claude/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "scm": {
+      "command": "/path/to/scm",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Replace `/path/to/scm` with your actual binary location (e.g., `~/.local/bin/scm` or the output of `which scm`).
+
+Restart Claude Code after updating the configuration.
+
+### Available MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `list_fragments` | List all fragments, optionally filtered by tags |
+| `get_fragment` | Retrieve a specific fragment's content by name |
+| `list_profiles` | List all configured profiles |
+| `get_profile` | Get detailed profile configuration |
+| `assemble_context` | Combine fragments, profiles, and tags into assembled context |
+| `list_prompts` | List all saved prompts |
+| `get_prompt` | Retrieve a specific prompt's content by name |
+
+### Example MCP Interactions
+
+Once configured, you can interact with SCM directly in Claude Code:
+
+```
+> list my available profiles
+
+● scm - list_profiles (MCP)
+  ⎿ developer, go-developer, python-developer, reviewer, prototype...
+
+> assemble context with the go-developer profile
+
+● scm - assemble_context (MCP)(profile: "go-developer")
+  ⎿ { "context": "# Golang Development\n..." }
+
+> assemble context with golang and security tags
+
+● scm - assemble_context (MCP)(tags: ["golang", "security"])
+  ⎿ { "context": "# Golang Development\n# Security..." }
+```
+
+### Working Directory
+
+The MCP server respects SCM's config hierarchy. When Claude Code runs in a project with a `.scm/` directory, that project's fragments and profiles are used. Otherwise, it falls back to `~/.scm/` or embedded resources.
 
 ## Generators
 

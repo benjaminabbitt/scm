@@ -21,6 +21,7 @@ import (
 //   - SCM_MOCK_EXIT_CODE: Exit code to return (default: 0)
 //   - SCM_MOCK_RECORD_FILE: File to write received input to for verification
 type Mock struct {
+	BaseBackend
 	BinaryPath string
 	Args       []string
 	Env        map[string]string
@@ -29,24 +30,10 @@ type Mock struct {
 // NewMock creates a new Mock backend.
 func NewMock() *Mock {
 	return &Mock{
-		Args: []string{},
-		Env:  make(map[string]string),
+		BaseBackend: NewBaseBackend("mock", "1.0.0"),
+		Args:        []string{},
+		Env:         make(map[string]string),
 	}
-}
-
-// Name returns the backend identifier.
-func (b *Mock) Name() string {
-	return "mock"
-}
-
-// Version returns the backend version.
-func (b *Mock) Version() string {
-	return "1.0.0"
-}
-
-// SupportedModes returns the execution modes this backend supports.
-func (b *Mock) SupportedModes() []pb.ExecutionMode {
-	return []pb.ExecutionMode{pb.ExecutionMode_INTERACTIVE, pb.ExecutionMode_ONESHOT}
 }
 
 // Run executes the mock backend with the given request.
@@ -68,11 +55,8 @@ func (b *Mock) Run(ctx context.Context, req *pb.RunRequest, stdout, stderr io.Wr
 	recordFile := getEnvFromOpts(opts, "SCM_MOCK_RECORD_FILE")
 
 	// Assemble context from fragments
-	context := AssembleContext(req.Fragments)
-	promptContent := ""
-	if req.Prompt != nil {
-		promptContent = req.Prompt.Content
-	}
+	context := b.AssembleContext(req.Fragments)
+	promptContent := b.GetPromptContent(req)
 
 	// Record input if requested
 	if recordFile != "" {

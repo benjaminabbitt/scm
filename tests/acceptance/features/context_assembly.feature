@@ -64,7 +64,9 @@ Feature: Context assembly
     And a config file with:
       """
       lm:
-        default_plugin: claude-code
+        plugins:
+          claude-code:
+            default: true
         plugins:
           claude-code:
             binary_path: "{{MOCK_LM_PATH}}"
@@ -97,7 +99,9 @@ Feature: Context assembly
     And a config file with:
       """
       lm:
-        default_plugin: claude-code
+        plugins:
+          claude-code:
+            default: true
         plugins:
           claude-code:
             binary_path: "{{MOCK_LM_PATH}}"
@@ -139,7 +143,9 @@ Feature: Context assembly
     And a config file with:
       """
       lm:
-        default_plugin: claude-code
+        plugins:
+          claude-code:
+            default: true
         plugins:
           claude-code:
             binary_path: "{{MOCK_LM_PATH}}"
@@ -172,7 +178,9 @@ Feature: Context assembly
     And a config file with:
       """
       lm:
-        default_plugin: claude-code
+        plugins:
+          claude-code:
+            default: true
         plugins:
           claude-code:
             binary_path: "{{MOCK_LM_PATH}}"
@@ -208,7 +216,9 @@ Feature: Context assembly
     And a config file with:
       """
       lm:
-        default_plugin: claude-code
+        plugins:
+          claude-code:
+            default: true
         plugins:
           claude-code:
             binary_path: "{{MOCK_LM_PATH}}"
@@ -305,7 +315,9 @@ Feature: Context assembly
     And a config file with:
       """
       lm:
-        default_plugin: claude-code
+        plugins:
+          claude-code:
+            default: true
         plugins:
           claude-code:
             binary_path: "{{MOCK_LM_PATH}}"
@@ -343,7 +355,9 @@ Feature: Context assembly
     And a config file with:
       """
       lm:
-        default_plugin: claude-code
+        plugins:
+          claude-code:
+            default: true
         plugins:
           claude-code:
             binary_path: "{{MOCK_LM_PATH}}"
@@ -372,7 +386,9 @@ Feature: Context assembly
     Given a config file with:
       """
       lm:
-        default_plugin: claude-code
+        plugins:
+          claude-code:
+            default: true
         plugins:
           claude-code:
             binary_path: "{{MOCK_LM_PATH}}"
@@ -401,7 +417,9 @@ Feature: Context assembly
     Given a config file with:
       """
       lm:
-        default_plugin: claude-code
+        plugins:
+          claude-code:
+            default: true
         plugins:
           claude-code:
             binary_path: "{{MOCK_LM_PATH}}"
@@ -444,7 +462,9 @@ Feature: Context assembly
     And a config file with:
       """
       lm:
-        default_plugin: claude-code
+        plugins:
+          claude-code:
+            default: true
         plugins:
           claude-code:
             binary_path: "{{MOCK_LM_PATH}}"

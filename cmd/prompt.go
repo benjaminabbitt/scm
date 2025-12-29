@@ -245,4 +245,9 @@ func init() {
 	promptCmd.AddCommand(promptShowCmd)
 
 	promptEditCmd.Flags().BoolVarP(&promptEditLocal, "local", "l", false, "Create prompt in local .scm directory")
+
+	// Register positional arg completions
+	promptEditCmd.ValidArgsFunction = completePromptNames
+	promptShowCmd.ValidArgsFunction = completePromptNames
+	promptDeleteCmd.ValidArgsFunction = completePromptNames
 }

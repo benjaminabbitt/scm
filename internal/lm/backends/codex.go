@@ -18,6 +18,7 @@ import (
 // Bug reports are welcome. If OpenAI would like to provide API credits
 // or licenses for testing, contributions to improve this integration are appreciated.
 type Codex struct {
+	BaseBackend
 	BinaryPath string
 	Args       []string
 	Env        map[string]string
@@ -26,25 +27,11 @@ type Codex struct {
 // NewCodex creates a new Codex backend with default settings.
 func NewCodex() *Codex {
 	return &Codex{
-		BinaryPath: "codex",
-		Args:       []string{},
-		Env:        make(map[string]string),
+		BaseBackend: NewBaseBackend("codex", "1.0.0"),
+		BinaryPath:  "codex",
+		Args:        []string{},
+		Env:         make(map[string]string),
 	}
-}
-
-// Name returns the backend identifier.
-func (b *Codex) Name() string {
-	return "codex"
-}
-
-// Version returns the backend version.
-func (b *Codex) Version() string {
-	return "1.0.0"
-}
-
-// SupportedModes returns the execution modes this backend supports.
-func (b *Codex) SupportedModes() []pb.ExecutionMode {
-	return []pb.ExecutionMode{pb.ExecutionMode_INTERACTIVE, pb.ExecutionMode_ONESHOT}
 }
 
 // Run executes Codex with the given request.
@@ -162,11 +149,8 @@ func (b *Codex) buildArgs(req *pb.RunRequest, quiet bool) []string {
 	}
 
 	// Assemble context from fragments
-	context := AssembleContext(req.Fragments)
-	promptContent := ""
-	if req.Prompt != nil {
-		promptContent = req.Prompt.Content
-	}
+	context := b.AssembleContext(req.Fragments)
+	promptContent := b.GetPromptContent(req)
 
 	// Build the prompt with context
 	// Note: Codex uses CODEX.md for context by default

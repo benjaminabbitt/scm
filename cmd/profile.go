@@ -359,4 +359,17 @@ func init() {
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddGenerators, "add-generator", nil, "Generator(s) to add (can be repeated)")
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveGenerators, "remove-generator", nil, "Generator(s) to remove (can be repeated)")
 	profileUpdateCmd.Flags().StringVarP(&profileUpdateDescription, "description", "d", "", "New description for the profile")
+
+	// Register positional arg completions
+	profileShowCmd.ValidArgsFunction = completeProfileNames
+	profileRemoveCmd.ValidArgsFunction = completeProfileNames
+	profileUpdateCmd.ValidArgsFunction = completeProfileNames
+
+	// Register flag completions
+	_ = profileAddCmd.RegisterFlagCompletionFunc("parent", completeProfileNames)
+	_ = profileAddCmd.RegisterFlagCompletionFunc("fragment", completeFragmentNames)
+	_ = profileUpdateCmd.RegisterFlagCompletionFunc("add-parent", completeProfileNames)
+	_ = profileUpdateCmd.RegisterFlagCompletionFunc("remove-parent", completeProfileNames)
+	_ = profileUpdateCmd.RegisterFlagCompletionFunc("add-fragment", completeFragmentNames)
+	_ = profileUpdateCmd.RegisterFlagCompletionFunc("remove-fragment", completeFragmentNames)
 }

@@ -32,10 +32,11 @@ func aHomeDirectoryWithMlcmConfig() error {
 	// Home .scm is already created by NewTestEnvironment
 	// Create a minimal config
 	config := `lm:
-  default_plugin: claude-code
+  plugins:
+    claude-code:
+      default: true
 defaults:
   use_distilled: false
-profiles: {}
 `
 	return TestEnv.WriteHomeFile(".scm/config.yaml", config)
 }

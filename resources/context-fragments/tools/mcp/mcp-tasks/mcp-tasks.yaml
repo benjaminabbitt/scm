@@ -1,4 +1,4 @@
-version: "1.0"
+version: 1.0
 tags:
     - workflow
     - mcp
@@ -13,6 +13,7 @@ content: |-
     - Store tasks in `.tasks/todos.md`
     - Call `tasks_setup` once per conversation with the source path
     - Use the workspace parameter to specify the project directory
+    - Note that the user may refer to this plugin as "tasks" or "todo" in the conversation
 
     ## Task Statuses
 
@@ -30,29 +31,30 @@ content: |-
     - Use `tasks_update` for bulk status changes
     - Call `tasks_search` to find specific tasks by status or text
     - Avoid redundant `tasks_summary` calls after add/update operations
-content_hash: sha256:f19fe92482910c9fe5342f52fdf5bc945124228508d428e611227d0c042afc25
+content_hash: sha256:663acebd8ff3aba08c6c99ecd9f84917d0382f8ce205ea73a2f49370594effc6
 distilled: |-
-    # MCP Tasks
+    # mcp-tasks
 
     Persistent task mgmt across sessions.
 
     ## Setup
-    - Tasks in `.tasks/todos.md`
+    - Store in `.tasks/todos.md`
     - Call `tasks_setup` once/conversation w/ source path
     - Use workspace param for project dir
+    - User may call it "tasks" or "todo"
 
     ## Statuses
-    - **In Progress**: Current work (limit 1)
+    - **In Progress**: Current (limit 1)
     - **To Do**: Upcoming
     - **Backlog**: Low priority
     - **Done**: Completed
     - **Reminders**: Persistent AI instructions
-    - **Notes**: Non-actionable reference
+    - **Notes**: Reference info
 
     ## Best Practices
     - Sync w/ TodoWrite
     - `tasks_add`: batch additions
     - `tasks_update`: bulk status changes
     - `tasks_search`: find by status/text
-    - Skip `tasks_summary` after add/update
+    - Skip `tasks_summary` after add/update ops
 distilled_by: claude-code

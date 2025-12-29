@@ -228,4 +228,9 @@ func init() {
 	fragmentCmd.AddCommand(fragmentDeleteCmd)
 
 	fragmentEditCmd.Flags().BoolVarP(&fragmentEditLocal, "local", "l", false, "Create in local .scm directory")
+
+	// Register positional arg completions
+	fragmentEditCmd.ValidArgsFunction = completeFragmentNames
+	fragmentShowCmd.ValidArgsFunction = completeFragmentNames
+	fragmentDeleteCmd.ValidArgsFunction = completeFragmentNames
 }

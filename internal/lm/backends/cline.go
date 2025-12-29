@@ -18,6 +18,7 @@ import (
 // Bug reports are welcome. If the Cline team would like to provide API credits
 // or licenses for testing, contributions to improve this integration are appreciated.
 type Cline struct {
+	BaseBackend
 	BinaryPath string
 	Args       []string
 	Env        map[string]string
@@ -26,25 +27,11 @@ type Cline struct {
 // NewCline creates a new Cline backend with default settings.
 func NewCline() *Cline {
 	return &Cline{
-		BinaryPath: "cline",
-		Args:       []string{},
-		Env:        make(map[string]string),
+		BaseBackend: NewBaseBackend("cline", "1.0.0"),
+		BinaryPath:  "cline",
+		Args:        []string{},
+		Env:         make(map[string]string),
 	}
-}
-
-// Name returns the backend identifier.
-func (b *Cline) Name() string {
-	return "cline"
-}
-
-// Version returns the backend version.
-func (b *Cline) Version() string {
-	return "1.0.0"
-}
-
-// SupportedModes returns the execution modes this backend supports.
-func (b *Cline) SupportedModes() []pb.ExecutionMode {
-	return []pb.ExecutionMode{pb.ExecutionMode_INTERACTIVE, pb.ExecutionMode_ONESHOT}
 }
 
 // Run executes Cline with the given request.
@@ -155,11 +142,8 @@ func (b *Cline) buildArgs(req *pb.RunRequest) []string {
 	}
 
 	// Assemble context from fragments
-	context := AssembleContext(req.Fragments)
-	promptContent := ""
-	if req.Prompt != nil {
-		promptContent = req.Prompt.Content
-	}
+	context := b.AssembleContext(req.Fragments)
+	promptContent := b.GetPromptContent(req)
 
 	// Build the prompt with context
 	if promptContent != "" {

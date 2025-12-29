@@ -309,4 +309,11 @@ func init() {
 	runCmd.Flags().BoolVarP(&runDryRun, "dry-run", "n", false, "Show command that would be executed")
 	runCmd.Flags().BoolVarP(&runSuppressWarnings, "quiet", "q", false, "Suppress warnings (e.g., variable redefinition)")
 	runCmd.Flags().BoolVar(&runPrint, "print", false, "Print response and exit (non-interactive mode)")
+
+	// Register completions
+	_ = runCmd.RegisterFlagCompletionFunc("plugin", completePluginNames)
+	_ = runCmd.RegisterFlagCompletionFunc("fragment", completeFragmentNames)
+	_ = runCmd.RegisterFlagCompletionFunc("tag", completeTagNames)
+	_ = runCmd.RegisterFlagCompletionFunc("profile", completeProfileNames)
+	_ = runCmd.RegisterFlagCompletionFunc("run-prompt", completePromptNames)
 }

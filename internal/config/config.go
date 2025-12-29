@@ -74,6 +74,17 @@ func (c *Config) GetEditorCommand() (string, []string) {
 	return "nano", nil
 }
 
+// GetDefaultProfiles returns the names of all profiles marked as default.
+func (c *Config) GetDefaultProfiles() []string {
+	var defaults []string
+	for name, profile := range c.Profiles {
+		if profile.Default {
+			defaults = append(defaults, name)
+		}
+	}
+	return defaults
+}
+
 // Generator defines a context generator.
 //
 // SECURITY NOTE: Config-based generators execute arbitrary commands specified in config.yaml.
@@ -89,6 +100,8 @@ type Generator struct {
 
 // PluginConfig holds configuration for a specific AI plugin.
 type PluginConfig struct {
+	Default    bool              `mapstructure:"default" yaml:"default,omitempty"`      // If true, this is the default plugin
+	Model      string            `mapstructure:"model" yaml:"model,omitempty"`          // Default model for this plugin
 	BinaryPath string            `mapstructure:"binary_path" yaml:"binary_path,omitempty"`
 	Args       []string          `mapstructure:"args" yaml:"args,omitempty"`
 	Env        map[string]string `mapstructure:"env" yaml:"env,omitempty"`
@@ -96,15 +109,35 @@ type PluginConfig struct {
 
 // LMConfig holds LM (language model) configuration.
 type LMConfig struct {
-	DefaultPlugin string                  `mapstructure:"default_plugin" yaml:"default_plugin"`
-	PluginPaths   []string                `mapstructure:"plugin_paths" yaml:"plugin_paths,omitempty"`
-	Plugins       map[string]PluginConfig `mapstructure:"plugins" yaml:"plugins"`
+	PluginPaths []string                `mapstructure:"plugin_paths" yaml:"plugin_paths,omitempty"`
+	Plugins     map[string]PluginConfig `mapstructure:"plugins" yaml:"plugins"`
+}
+
+// GetDefaultPlugin returns the name of the default plugin.
+// Returns the first plugin marked as default, or "claude-code" as fallback.
+func (c *LMConfig) GetDefaultPlugin() string {
+	for name, cfg := range c.Plugins {
+		if cfg.Default {
+			return name
+		}
+	}
+	return "claude-code"
+}
+
+// GetDefaultModel returns the default model for the specified plugin.
+// Returns empty string if no default is configured.
+func (c *LMConfig) GetDefaultModel(pluginName string) string {
+	if cfg, ok := c.Plugins[pluginName]; ok {
+		return cfg.Model
+	}
+	return ""
 }
 
 // Profile is a named collection of context fragments, variables, and context generators.
 // Fragments can be specified directly by path, or dynamically via tags.
 // Profiles can inherit from parent profiles using the Parents field.
 type Profile struct {
+	Default     bool              `mapstructure:"default" yaml:"default,omitempty"`       // If true, this profile is loaded by default
 	Description string            `mapstructure:"description" yaml:"description,omitempty"`
 	Parents     []string          `mapstructure:"parents" yaml:"parents,omitempty"`     // Parent profiles to inherit from
 	Tags        []string          `mapstructure:"tags" yaml:"tags,omitempty"`           // Fragment tags to include
@@ -114,9 +147,8 @@ type Profile struct {
 }
 
 // Defaults holds default settings applied when no explicit values are specified.
+// Note: To default fragments, add them to a profile and mark that profile as default.
 type Defaults struct {
-	Profiles     []string `mapstructure:"profiles" yaml:"profiles,omitempty"`           // Default profiles to load when none specified
-	Fragments    []string `mapstructure:"fragments" yaml:"fragments,omitempty"`         // Fragments always included
 	Generators   []string `mapstructure:"generators" yaml:"generators,omitempty"`       // Generators always run
 	UseDistilled *bool    `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"` // Prefer .distilled.md versions (default true)
 }
@@ -138,8 +170,7 @@ func (d *Defaults) ShouldUseDistilled() bool {
 func Load() (*Config, error) {
 	cfg := &Config{
 		LM: LMConfig{
-			DefaultPlugin: "claude-code",
-			Plugins:       make(map[string]PluginConfig),
+			Plugins: make(map[string]PluginConfig),
 		},
 		Profiles:   make(map[string]Profile),
 		Generators: make(map[string]Generator),
@@ -396,7 +427,7 @@ func (c *Config) Save() error {
 
 	// Update with current values
 	existing["lm"] = c.LM
-	if len(c.Defaults.Profiles) > 0 || len(c.Defaults.Fragments) > 0 || len(c.Defaults.Generators) > 0 {
+	if len(c.Defaults.Generators) > 0 {
 		existing["defaults"] = c.Defaults
 	}
 	if len(c.Profiles) > 0 {
@@ -416,6 +447,12 @@ func (c *Config) Save() error {
 	}
 
 	return nil
+}
+
+// LoadEmbedded loads the embedded default configuration, returning nil on error.
+// Use this when you want to check embedded resources without failing.
+func LoadEmbedded() (*Config, error) {
+	return LoadEmbeddedConfig()
 }
 
 // LoadEmbeddedConfig loads the embedded default configuration.
@@ -603,7 +640,8 @@ func (b *profileBuilder) toProfile() *Profile {
 
 // maxProfileDepth is the maximum allowed depth for profile inheritance.
 // This prevents stack overflow from deeply nested or malformed configurations.
-const maxProfileDepth = 50
+// The value 64 is arbitrary but well beyond any reasonable inheritance chain.
+const maxProfileDepth = 64
 
 // ResolveProfile resolves a profile by recursively merging all parent profiles.
 // Parents are processed depth-first, with later parents and the child overriding earlier values.

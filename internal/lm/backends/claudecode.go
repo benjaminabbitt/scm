@@ -8,12 +8,14 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/benjaminabbitt/scm/internal/config"
 	pb "github.com/benjaminabbitt/scm/internal/lm/grpc"
 	"github.com/benjaminabbitt/scm/internal/ptyrunner"
 )
 
 // ClaudeCode implements the Backend interface for Claude Code CLI.
 type ClaudeCode struct {
+	BaseBackend
 	BinaryPath string
 	Args       []string
 	Env        map[string]string
@@ -22,25 +24,11 @@ type ClaudeCode struct {
 // NewClaudeCode creates a new Claude Code backend with default settings.
 func NewClaudeCode() *ClaudeCode {
 	return &ClaudeCode{
-		BinaryPath: "claude",
-		Args:       []string{},
-		Env:        make(map[string]string),
+		BaseBackend: NewBaseBackend("claude-code", "1.0.0"),
+		BinaryPath:  "claude",
+		Args:        []string{},
+		Env:         make(map[string]string),
 	}
-}
-
-// Name returns the backend identifier.
-func (b *ClaudeCode) Name() string {
-	return "claude-code"
-}
-
-// Version returns the backend version.
-func (b *ClaudeCode) Version() string {
-	return "1.0.0"
-}
-
-// SupportedModes returns the execution modes this backend supports.
-func (b *ClaudeCode) SupportedModes() []pb.ExecutionMode {
-	return []pb.ExecutionMode{pb.ExecutionMode_INTERACTIVE, pb.ExecutionMode_ONESHOT}
 }
 
 // Run executes Claude Code with the given request.
@@ -57,10 +45,15 @@ func (b *ClaudeCode) Run(ctx context.Context, req *pb.RunRequest, stdout, stderr
 		fmt.Fprintf(stderr, "[v16] %s %s\n", b.BinaryPath, strings.Join(args, " "))
 	}
 
-	// Build model info (model name may be overridden by opts)
-	modelName := "claude-3-opus" // default
-	if opts.Model != "" {
-		modelName = opts.Model
+	// Build model info - priority: request opts > config default > hardcoded fallback
+	modelName := opts.Model
+	if modelName == "" {
+		if cfg, err := config.Load(); err == nil {
+			modelName = cfg.LM.GetDefaultModel(b.Name())
+		}
+	}
+	if modelName == "" {
+		modelName = "claude-3-opus" // fallback
 	}
 	modelInfo := &pb.ModelInfo{
 		ModelName: modelName,
@@ -161,32 +154,14 @@ func (b *ClaudeCode) buildArgs(req *pb.RunRequest) []string {
 	}
 
 	// Assemble context from fragments and pass via --append-system-prompt
-	context := AssembleContext(req.Fragments)
-	if context != "" {
-		args = append(args, "--append-system-prompt", context)
+	if ctx := b.AssembleContext(req.Fragments); ctx != "" {
+		args = append(args, "--append-system-prompt", ctx)
 	}
 
 	// Add the prompt as the final argument
-	if req.Prompt != nil && req.Prompt.Content != "" {
-		args = append(args, req.Prompt.Content)
+	if prompt := b.GetPromptContent(req); prompt != "" {
+		args = append(args, prompt)
 	}
 
 	return args
-}
-
-// AssembleContext combines fragments into a single context string.
-// This is a helper for backends that don't support structured fragments.
-func AssembleContext(fragments []*pb.Fragment) string {
-	if len(fragments) == 0 {
-		return ""
-	}
-
-	var parts []string
-	for _, f := range fragments {
-		if f.Content == "" {
-			continue
-		}
-		parts = append(parts, strings.TrimSpace(f.Content))
-	}
-	return strings.Join(parts, "\n\n---\n\n")
 }
