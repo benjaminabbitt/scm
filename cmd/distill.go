@@ -602,4 +602,10 @@ func init() {
 	distillCmd.Flags().BoolVar(&distillResources, "resources", false, "Distill resources/ directory (for packaging)")
 
 	distillCleanCmd.Flags().BoolVarP(&distillCleanDryRun, "dry-run", "n", false, "Show what would be deleted without doing it")
+
+	// Register flag completions
+	_ = distillCmd.RegisterFlagCompletionFunc("plugin", completePluginNames)
+	_ = distillCmd.RegisterFlagCompletionFunc("profile", completeProfileNames)
+	_ = distillCmd.RegisterFlagCompletionFunc("fragment", completeFragmentNames)
+	_ = distillCmd.RegisterFlagCompletionFunc("prompt", completePromptNames)
 }

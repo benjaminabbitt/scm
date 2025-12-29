@@ -1,12 +1,10 @@
 lm:
-  default_plugin: claude-code
+  plugins:
+    claude-code:
+      default: true
 
 editor:
-  command: vim
-
-defaults:
-  profiles:
-    - developer
+  command: nano
 
 generators:
   simple:
@@ -22,21 +20,28 @@ profiles:
     fragments:
       - general/communication
       - general/security
-
-  developer:
-    description: Full development context with all standards and practices
-    parents:
-      - base
-    fragments:
-      - general/tdd
       - general/code-quality
-      - tools/cli/just/just
-      - tools/cli/git/git
-      - tools/cli/ast-grep/ast-grep
+      - patterns/12-factor/12-factor
       - general/documentation
       - general/problem-solving
       - general/pushback
-      - patterns/12-factor/12-factor
+
+  tooling:
+    description: Common tooling for AI's use
+    fragments:
+      - tools/cli/git/git
+      - tools/cli/ast-grep/ast-grep
+      - tools/cli/just/just
+
+
+  developer:
+    default: true
+    description: Full development context with all standards and practices
+    parents:
+      - base
+      - tooling
+    fragments:
+      - general/tdd
 
   go-developer:
     description: Go development context

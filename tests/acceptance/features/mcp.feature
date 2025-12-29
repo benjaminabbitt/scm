@@ -27,7 +27,6 @@ Feature: MCP server
     And the MCP response should contain "get_fragment"
     And the MCP response should contain "list_profiles"
     And the MCP response should contain "get_profile"
-    And the MCP response should contain "set_profile"
     And the MCP response should contain "assemble_context"
     And the MCP response should contain "list_prompts"
     And the MCP response should contain "get_prompt"
@@ -166,35 +165,6 @@ Feature: MCP server
 
   Scenario: Get nonexistent profile returns error
     When I send MCP tools/call "get_profile" with:
-      """
-      {"name": "nonexistent"}
-      """
-    Then the exit code should be 0
-    And the MCP response should contain "not found"
-
-  # ============================================================================
-  # Set Profile
-  # ============================================================================
-
-  Scenario: Set profile for session
-    Given a config file with:
-      """
-      profiles:
-        session-profile:
-          description: Session test
-          fragments:
-            - test-frag
-      """
-    When I send MCP tools/call "set_profile" with:
-      """
-      {"name": "session-profile"}
-      """
-    Then the exit code should be 0
-    And the MCP response should contain "session-profile"
-    And the MCP response should contain "Session profile set"
-
-  Scenario: Set nonexistent profile returns error
-    When I send MCP tools/call "set_profile" with:
       """
       {"name": "nonexistent"}
       """

@@ -18,6 +18,7 @@ import (
 // Bug reports are welcome. If the Aider team would like to provide API credits
 // or licenses for testing, contributions to improve this integration are appreciated.
 type Aider struct {
+	BaseBackend
 	BinaryPath string
 	Args       []string
 	Env        map[string]string
@@ -26,25 +27,11 @@ type Aider struct {
 // NewAider creates a new Aider backend with default settings.
 func NewAider() *Aider {
 	return &Aider{
-		BinaryPath: "aider",
-		Args:       []string{},
-		Env:        make(map[string]string),
+		BaseBackend: NewBaseBackend("aider", "1.0.0"),
+		BinaryPath:  "aider",
+		Args:        []string{},
+		Env:         make(map[string]string),
 	}
-}
-
-// Name returns the backend identifier.
-func (b *Aider) Name() string {
-	return "aider"
-}
-
-// Version returns the backend version.
-func (b *Aider) Version() string {
-	return "1.0.0"
-}
-
-// SupportedModes returns the execution modes this backend supports.
-func (b *Aider) SupportedModes() []pb.ExecutionMode {
-	return []pb.ExecutionMode{pb.ExecutionMode_INTERACTIVE, pb.ExecutionMode_ONESHOT}
 }
 
 // Run executes Aider with the given request.
@@ -165,11 +152,8 @@ func (b *Aider) buildArgs(req *pb.RunRequest) []string {
 	}
 
 	// Assemble context from fragments and build message
-	context := AssembleContext(req.Fragments)
-	promptContent := ""
-	if req.Prompt != nil {
-		promptContent = req.Prompt.Content
-	}
+	context := b.AssembleContext(req.Fragments)
+	promptContent := b.GetPromptContent(req)
 
 	// Aider uses --message for the initial prompt
 	if promptContent != "" {

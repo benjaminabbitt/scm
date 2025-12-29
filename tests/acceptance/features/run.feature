@@ -67,7 +67,9 @@ Feature: Run command
     And a config file with:
       """
       lm:
-        default_plugin: claude-code
+        plugins:
+          claude-code:
+            default: true
         plugins:
           claude-code:
             binary_path: "{{MOCK_LM_PATH}}"
@@ -153,7 +155,9 @@ Feature: Run command
     And a config file with:
       """
       lm:
-        default_plugin: claude-code
+        plugins:
+          claude-code:
+            default: true
         plugins:
           claude-code:
             binary_path: "{{MOCK_LM_PATH}}"

@@ -30,7 +30,6 @@ Available tools:
   - get_fragment: Get a fragment's content by name
   - list_profiles: List configured profiles
   - get_profile: Get a profile's configuration
-  - set_profile: Set the default profile for this session
   - assemble_context: Assemble context from profile/fragments/tags
   - list_prompts: List saved prompts
   - get_prompt: Get a prompt's content by name
@@ -101,10 +100,9 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 }
 
 type mcpServer struct {
-	reader         *bufio.Reader
-	writer         io.Writer
-	cfg            *config.Config
-	sessionProfile string // Override profile for this session
+	reader *bufio.Reader
+	writer io.Writer
+	cfg    *config.Config
 }
 
 // fragmentLoader returns a fragment loader configured for the current config source.
@@ -336,20 +334,6 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 				},
 			},
 		},
-		{
-			Name:        "set_profile",
-			Description: "Set the default profile for this session. Affects subsequent assemble_context calls.",
-			InputSchema: map[string]interface{}{
-				"type":     "object",
-				"required": []string{"name"},
-				"properties": map[string]interface{}{
-					"name": map[string]interface{}{
-						"type":        "string",
-						"description": "Profile name to use as default",
-					},
-				},
-			},
-		},
 	}
 }
 
@@ -384,8 +368,6 @@ func (s *mcpServer) handleToolsCall(ctx context.Context, req *mcpRequest) *mcpRe
 		result, err = s.toolListPrompts(params.Arguments)
 	case "get_prompt":
 		result, err = s.toolGetPrompt(params.Arguments)
-	case "set_profile":
-		result, err = s.toolSetProfile(params.Arguments)
 	default:
 		return &mcpResponse{
 			JSONRPC: "2.0",
@@ -506,7 +488,7 @@ func (s *mcpServer) toolListProfiles(args json.RawMessage) (interface{}, error) 
 	return map[string]interface{}{
 		"profiles": result,
 		"count":    len(result),
-		"defaults": s.cfg.Defaults.Profiles,
+		"defaults": s.cfg.GetDefaultProfiles(),
 	}, nil
 }
 
@@ -537,30 +519,6 @@ func (s *mcpServer) toolGetProfile(args json.RawMessage) (interface{}, error) {
 	}, nil
 }
 
-func (s *mcpServer) toolSetProfile(args json.RawMessage) (interface{}, error) {
-	var params struct {
-		Name string `json:"name"`
-	}
-	if err := json.Unmarshal(args, &params); err != nil {
-		return nil, err
-	}
-	if params.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
-
-	// Verify profile exists
-	if _, exists := s.cfg.Profiles[params.Name]; !exists {
-		return nil, fmt.Errorf("profile not found: %s", params.Name)
-	}
-
-	s.sessionProfile = params.Name
-
-	return map[string]interface{}{
-		"profile": params.Name,
-		"message": fmt.Sprintf("Session profile set to %q", params.Name),
-	}, nil
-}
-
 func (s *mcpServer) toolAssembleContext(args json.RawMessage) (interface{}, error) {
 	var params struct {
 		Profile   string   `json:"profile"`
@@ -578,13 +536,7 @@ func (s *mcpServer) toolAssembleContext(args json.RawMessage) (interface{}, erro
 	profileName := params.Profile
 	var profileNames []string
 	if profileName == "" && len(params.Fragments) == 0 && len(params.Tags) == 0 {
-		// Use session profile if set, otherwise config defaults
-		if s.sessionProfile != "" {
-			profileNames = []string{s.sessionProfile}
-		} else {
-			profileNames = s.cfg.Defaults.Profiles
-		}
-		allFragments = append(allFragments, s.cfg.Defaults.Fragments...)
+		profileNames = s.cfg.GetDefaultProfiles()
 	} else if profileName != "" {
 		profileNames = []string{profileName}
 	}

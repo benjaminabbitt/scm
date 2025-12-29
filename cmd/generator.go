@@ -59,15 +59,40 @@ var generatorListCmd = &cobra.Command{
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
+		// Load embedded config to show built-in generators
+		embeddedCfg, _ := config.LoadEmbedded()
+
 		// Find external generators
 		externalGenerators := findExternalGenerators(cfg.GetGeneratorPaths())
 
-		// Print config-based generators
-		if len(cfg.Generators) > 0 {
+		hasOutput := false
+
+		// Print built-in generators (from embedded resources)
+		if embeddedCfg != nil && len(embeddedCfg.Generators) > 0 {
+			fmt.Println("Built-in generators:")
+			for name, gen := range embeddedCfg.Generators {
+				if gen.Description != "" {
+					fmt.Printf("  %s - %s\n", name, gen.Description)
+				} else {
+					fmt.Printf("  %s\n", name)
+				}
+			}
+			hasOutput = true
+		}
+
+		// Print config-based generators (excluding built-ins to avoid duplicates)
+		configOnly := make(map[string]config.Generator)
+		for name, gen := range cfg.Generators {
+			if embeddedCfg == nil || embeddedCfg.Generators[name].Command == "" {
+				configOnly[name] = gen
+			}
+		}
+		if len(configOnly) > 0 {
 			fmt.Println("Config generators:")
-			for name := range cfg.Generators {
+			for name := range configOnly {
 				fmt.Printf("  %s\n", name)
 			}
+			hasOutput = true
 		}
 
 		// Print external generators
@@ -76,9 +101,10 @@ var generatorListCmd = &cobra.Command{
 			for _, g := range externalGenerators {
 				fmt.Printf("  %s (%s)\n", g.name, g.path)
 			}
+			hasOutput = true
 		}
 
-		if len(cfg.Generators) == 0 && len(externalGenerators) == 0 {
+		if !hasOutput {
 			fmt.Println("No generators found.")
 		}
 

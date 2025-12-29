@@ -2,9 +2,9 @@ version: 1.0
 tags:
     - mcp
     - context
-    - mlcm
+    - scm
 content: |-
-    # MLCM - Machine Learning Context Manager
+    # SCM - Sophisticated Context Management
 
     MCP server for managing reusable AI context fragments.
 
@@ -14,7 +14,6 @@ content: |-
     - `get_fragment`: Get fragment content by name
     - `list_profiles`: List configured profiles
     - `get_profile`: Get profile configuration
-    - `set_profile`: Set default profile for session
     - `assemble_context`: Combine fragments/profiles into context
     - `list_prompts`: List saved prompts
     - `get_prompt`: Get prompt content by name
@@ -38,15 +37,14 @@ content: |-
 
     ## Common MCP Workflows
 
-    **Switching profiles mid-session**: Use `set_profile` to change the default, then `assemble_context` to get the new context.
+    **Switching profiles**: Use `assemble_context` with the desired profile.
 
     ```
-    # User wants to switch from development to code review
-    set_profile(name="reviewer")
-    assemble_context()  # Returns reviewer context
+    # Switch to code review context
+    assemble_context(profile="reviewer")
     ```
 
-    **Adding fragments to current context**: Call `assemble_context` with additional fragments alongside the current profile.
+    **Adding fragments to a profile**: Call `assemble_context` with additional fragments alongside a profile.
 
     ```
     # Add security focus to current profile
@@ -89,55 +87,51 @@ content: |-
     content: |
       Your context here. Use {{project_name}} for variables.
     ```
-content_hash: sha256:93b054d38d2427657cb932431049d911e2dbadc54c528fd5a13c53415cb98608
+content_hash: sha256:232571a263a650fb6de2ca62c43ce532ffb7290eaa4903c0d8d7afc0b2019f78
 distilled: |-
-    # MLCM - ML Context Manager
+    # SCM - Sophisticated Context Management
 
     MCP server for reusable AI context fragments.
 
-    ## Tools
+    ## MCP Tools
     - `list_fragments`: List fragments w/ tags
     - `get_fragment`: Get fragment by name
     - `list_profiles`: List profiles
     - `get_profile`: Get profile config
-    - `set_profile`: Set session default profile
     - `assemble_context`: Combine fragments/profiles
-    - `list_prompts`/`get_prompt`: Manage prompts
+    - `list_prompts`/`get_prompt`: Saved prompts
 
     ## Concepts
 
-    **Fragments**: Reusable context snippets (standards, patterns, guidelines)
+    **Fragments**: Reusable context (coding standards, patterns, security)
     - Categories: general/, lang/, patterns/, profiles/
-    - Tagged for filtering
-    - Support {{variables}} via Mustache
+    - Tagged for filtering; support {{variables}} (Mustache)
 
     **Profiles**: Named fragment collections
-    - `developer`: Full dev context
+    - `developer`: Full dev (TDD, quality, security)
     - `go-developer`, `python-developer`: Language-specific
     - `reviewer`: Multi-perspective review
     - `prototype`: Rapid prototyping
 
     **Distillation**: Token-optimized versions
     - `no_distill: true` prevents compression
-    - Falls back to full content if none
+    - Falls back to full content if none exists
 
     ## Workflows
 
     ```
-    # Switch profile mid-session
-    set_profile(name="reviewer")
-    assemble_context()
+    # Switch profile
+    assemble_context(profile="reviewer")
 
     # Add fragments to profile
     assemble_context(profile="go-developer", fragments=["security"])
-    assemble_context(profile="developer", fragments=["patterns/cqrs"])
 
-    # Explore available context
+    # Explore available
     list_fragments()
     list_fragments(tags=["golang"])
     get_profile(name="reviewer")
 
-    # Ad-hoc assembly (no profile)
+    # Ad-hoc assembly
     assemble_context(fragments=["security", "lang/golang/golang"])
     assemble_context(tags=["review"])
     ```
@@ -149,6 +143,6 @@ distilled: |-
     variables: [project_name]
     no_distill: true  # Optional
     content: |
-      Context here. Use {{project_name}} for vars.
+      Context here. Use {{project_name}} for variables.
     ```
 distilled_by: claude-code

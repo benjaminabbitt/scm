@@ -18,6 +18,7 @@ import (
 // Bug reports are welcome. If Amazon would like to provide API credits
 // or licenses for testing, contributions to improve this integration are appreciated.
 type QDeveloper struct {
+	BaseBackend
 	BinaryPath string
 	Args       []string
 	Env        map[string]string
@@ -26,25 +27,11 @@ type QDeveloper struct {
 // NewQDeveloper creates a new Q Developer backend with default settings.
 func NewQDeveloper() *QDeveloper {
 	return &QDeveloper{
-		BinaryPath: "q",
-		Args:       []string{},
-		Env:        make(map[string]string),
+		BaseBackend: NewBaseBackend("q", "1.0.0"),
+		BinaryPath:  "q",
+		Args:        []string{},
+		Env:         make(map[string]string),
 	}
-}
-
-// Name returns the backend identifier.
-func (b *QDeveloper) Name() string {
-	return "q"
-}
-
-// Version returns the backend version.
-func (b *QDeveloper) Version() string {
-	return "1.0.0"
-}
-
-// SupportedModes returns the execution modes this backend supports.
-func (b *QDeveloper) SupportedModes() []pb.ExecutionMode {
-	return []pb.ExecutionMode{pb.ExecutionMode_INTERACTIVE, pb.ExecutionMode_ONESHOT}
 }
 
 // Run executes Q Developer with the given request.
@@ -151,11 +138,8 @@ func (b *QDeveloper) buildArgs(req *pb.RunRequest) []string {
 	args = append(args, "chat")
 
 	// Assemble context from fragments
-	context := AssembleContext(req.Fragments)
-	promptContent := ""
-	if req.Prompt != nil {
-		promptContent = req.Prompt.Content
-	}
+	context := b.AssembleContext(req.Fragments)
+	promptContent := b.GetPromptContent(req)
 
 	// Build the prompt with context
 	if promptContent != "" {

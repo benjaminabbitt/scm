@@ -111,9 +111,9 @@ func (m *MockLM) WriteConfig() error {
 	// Build config with mock settings
 	var config strings.Builder
 	config.WriteString("lm:\n")
-	config.WriteString("  default_plugin: mock\n")
 	config.WriteString("  plugins:\n")
 	config.WriteString("    mock:\n")
+	config.WriteString("      default: true\n")
 	config.WriteString("      args: []\n")
 	config.WriteString("      env:\n")
 	config.WriteString(fmt.Sprintf("        scm_mock_record_file: \"%s\"\n", m.RecordedInputPath))

@@ -14,6 +14,7 @@ import (
 
 // Gemini implements the Backend interface for Gemini CLI.
 type Gemini struct {
+	BaseBackend
 	BinaryPath string
 	Args       []string
 	Env        map[string]string
@@ -22,25 +23,11 @@ type Gemini struct {
 // NewGemini creates a new Gemini backend with default settings.
 func NewGemini() *Gemini {
 	return &Gemini{
-		BinaryPath: "gemini",
-		Args:       []string{},
-		Env:        make(map[string]string),
+		BaseBackend: NewBaseBackend("gemini", "1.0.0"),
+		BinaryPath:  "gemini",
+		Args:        []string{},
+		Env:         make(map[string]string),
 	}
-}
-
-// Name returns the backend identifier.
-func (b *Gemini) Name() string {
-	return "gemini"
-}
-
-// Version returns the backend version.
-func (b *Gemini) Version() string {
-	return "1.0.0"
-}
-
-// SupportedModes returns the execution modes this backend supports.
-func (b *Gemini) SupportedModes() []pb.ExecutionMode {
-	return []pb.ExecutionMode{pb.ExecutionMode_INTERACTIVE, pb.ExecutionMode_ONESHOT}
 }
 
 // Run executes Gemini with the given request.
@@ -151,11 +138,8 @@ func (b *Gemini) buildArgs(req *pb.RunRequest) []string {
 	}
 
 	// Assemble context from fragments
-	context := AssembleContext(req.Fragments)
-	promptContent := ""
-	if req.Prompt != nil {
-		promptContent = req.Prompt.Content
-	}
+	context := b.AssembleContext(req.Fragments)
+	promptContent := b.GetPromptContent(req)
 
 	// Build the prompt with context prepended if provided
 	var prompt string

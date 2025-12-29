@@ -18,6 +18,7 @@ import (
 // Bug reports are welcome. If the Block/Goose team would like to provide API credits
 // or licenses for testing, contributions to improve this integration are appreciated.
 type Goose struct {
+	BaseBackend
 	BinaryPath string
 	Args       []string
 	Env        map[string]string
@@ -26,25 +27,11 @@ type Goose struct {
 // NewGoose creates a new Goose backend with default settings.
 func NewGoose() *Goose {
 	return &Goose{
-		BinaryPath: "goose",
-		Args:       []string{},
-		Env:        make(map[string]string),
+		BaseBackend: NewBaseBackend("goose", "1.0.0"),
+		BinaryPath:  "goose",
+		Args:        []string{},
+		Env:         make(map[string]string),
 	}
-}
-
-// Name returns the backend identifier.
-func (b *Goose) Name() string {
-	return "goose"
-}
-
-// Version returns the backend version.
-func (b *Goose) Version() string {
-	return "1.0.0"
-}
-
-// SupportedModes returns the execution modes this backend supports.
-func (b *Goose) SupportedModes() []pb.ExecutionMode {
-	return []pb.ExecutionMode{pb.ExecutionMode_INTERACTIVE, pb.ExecutionMode_ONESHOT}
 }
 
 // Run executes Goose with the given request.
@@ -148,11 +135,8 @@ func (b *Goose) buildArgs(req *pb.RunRequest) []string {
 	copy(args, b.Args)
 
 	// Assemble context from fragments
-	context := AssembleContext(req.Fragments)
-	promptContent := ""
-	if req.Prompt != nil {
-		promptContent = req.Prompt.Content
-	}
+	context := b.AssembleContext(req.Fragments)
+	promptContent := b.GetPromptContent(req)
 
 	// Goose uses "session" subcommand for interactive mode
 	// For now, pass context and prompt together

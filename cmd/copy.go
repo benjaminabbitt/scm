@@ -106,8 +106,9 @@ func (r *CopyResult) Merge(other *CopyResult) {
 }
 
 var copyCmd = &cobra.Command{
-	Use:   "copy <from> <to>",
-	Short: "Copy fragments and prompts between locations",
+	Use:     "copy <from> <to>",
+	Aliases: []string{"cp"},
+	Short:   "Copy fragments and prompts between locations",
 	Long: `Copy context fragments and prompts between resources, home, project, or a path.
 
 Locations:
@@ -948,4 +949,13 @@ func init() {
 
 	copyCmd.Flags().BoolVar(&copyDev, "dev", false, "Dev mode: allow copying to resources directory (for scm development)")
 	copyCmd.Flags().BoolVar(&copyConfig, "include-config", true, "Include config.yaml in copy (use --include-config=false to skip)")
+
+	// Register positional arg completions (for source/destination locations)
+	copyCmd.ValidArgsFunction = completeCopyLocations
+
+	// Register flag completions
+	_ = copyCmd.RegisterFlagCompletionFunc("fragment", completeFragmentNames)
+	_ = copyCmd.RegisterFlagCompletionFunc("tag", completeTagNames)
+	_ = copyCmd.RegisterFlagCompletionFunc("prompt", completePromptNames)
+	_ = copyCmd.RegisterFlagCompletionFunc("profile", completeProfileNames)
 }
