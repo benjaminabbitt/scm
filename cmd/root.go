@@ -89,10 +89,10 @@ func shouldDefaultToRun(args []string) bool {
 
 	first := args[0]
 
-	// Don't redirect help, version, or completion
+	// Don't redirect help, version, completion, or Cobra's internal completion handler
 	if first == "help" || first == "--help" || first == "-h" ||
 		first == "version" || first == "--version" || first == "-v" ||
-		first == "completion" {
+		first == "completion" || first == "__complete" {
 		return false
 	}
 

@@ -171,8 +171,8 @@ This is useful for testing generators or seeing what context they produce.`,
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		// Try to run the generator
-		frags, err := RunGenerators(cfg, []string{name}, func(msg string) {
+		// Try to run the generator (use verbosity 0 for direct generator runs)
+		frags, err := RunGenerators(cfg, []string{name}, 0, func(msg string) {
 			fmt.Fprintf(os.Stderr, "warning: %s\n", msg)
 		})
 		if err != nil {
@@ -238,7 +238,8 @@ func ResolveGeneratorType(cfg *config.Config, name string) (path string, genType
 }
 
 // RunGenerators runs multiple generators and returns their fragments.
-func RunGenerators(cfg *config.Config, names []string, warnFunc func(string)) ([]*fragments.Fragment, error) {
+// Verbosity controls logging: 0=quiet, 1+=show commands/debug.
+func RunGenerators(cfg *config.Config, names []string, verbosity int, warnFunc func(string)) ([]*fragments.Fragment, error) {
 	var frags []*fragments.Fragment
 
 	for _, name := range names {
@@ -293,7 +294,9 @@ func RunGenerators(cfg *config.Config, names []string, warnFunc func(string)) ([
 				continue
 			}
 
-			resp, err := client.Generate(context.Background(), &pb.GenerateRequest{})
+			resp, err := client.Generate(context.Background(), &pb.GenerateRequest{
+				Verbosity: uint32(verbosity * 16), // Each -v adds 16 to verbosity level
+			})
 			client.Kill()
 
 			if err != nil {

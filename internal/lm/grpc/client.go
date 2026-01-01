@@ -57,13 +57,35 @@ type PluginClient struct {
 	grpc   *GRPCClient
 }
 
+// verbosityToHclogLevel converts verbosity count to hclog level.
+// 0 = Error (discard most), 1 = Warn, 2 = Info, 3+ = Debug/Trace
+func verbosityToHclogLevel(verbosity int) hclog.Level {
+	switch {
+	case verbosity >= 3:
+		return hclog.Trace
+	case verbosity == 2:
+		return hclog.Debug
+	case verbosity == 1:
+		return hclog.Info
+	default:
+		return hclog.Error
+	}
+}
+
 // NewPluginClient creates a new plugin client that spawns the given command.
 // The command should be the path to the plugin binary (e.g., "scm" with args ["plugin", "serve", "claudecode"]).
-func NewPluginClient(cmd string, args []string) (*PluginClient, error) {
+// Verbosity controls logging: 0=quiet, 1=info, 2=debug, 3+=trace.
+func NewPluginClient(cmd string, args []string, verbosity int) (*PluginClient, error) {
+	level := verbosityToHclogLevel(verbosity)
+	output := io.Discard
+	if verbosity > 0 {
+		output = os.Stderr
+	}
+
 	logger := hclog.New(&hclog.LoggerOptions{
 		Name:   "plugin",
-		Output: io.Discard,
-		Level:  hclog.Error,
+		Output: output,
+		Level:  level,
 	})
 
 	client := plugin.NewClient(&plugin.ClientConfig{
@@ -104,14 +126,15 @@ func NewPluginClient(cmd string, args []string) (*PluginClient, error) {
 
 // NewSelfInvokingClient creates a plugin client that invokes "scm plugin serve <backend>".
 // This is used when no external plugin binary is found.
-func NewSelfInvokingClient(backendName string) (*PluginClient, error) {
+// Verbosity controls logging: 0=quiet, 1=info, 2=debug, 3+=trace.
+func NewSelfInvokingClient(backendName string, verbosity int) (*PluginClient, error) {
 	// Get the path to the current executable
 	executable, err := os.Executable()
 	if err != nil {
 		return nil, err
 	}
 
-	return NewPluginClient(executable, []string{"plugin", "serve", backendName})
+	return NewPluginClient(executable, []string{"plugin", "serve", backendName}, verbosity)
 }
 
 // Info returns metadata about the plugin.

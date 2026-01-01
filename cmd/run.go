@@ -24,6 +24,7 @@ var (
 	runDryRun           bool
 	runSuppressWarnings bool
 	runPrint            bool
+	runVerbosity        int
 )
 
 var runCmd = &cobra.Command{
@@ -42,12 +43,17 @@ Additional -f flags will be appended to the profile's fragments.
 
 The AI plugin runs in isolation, ignoring default context files like Claude.md.
 
+Verbosity levels (-v can be repeated):
+  -v      Show plugin commands being executed
+  -vv     Show command arguments
+  -vvv    Show debug output
+
 Examples:
   scm run -f coding-standards "review this code"
   scm run -p developer "explain the architecture"
   scm run -p reviewer -f extra-rules "review this PR"
   scm run -t security "check for vulnerabilities"
-  scm run -t review -t style "comprehensive code review"`,
+  scm run -vv -p developer "debug mode"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Load configuration
 		cfg, err := config.Load()
@@ -166,7 +172,7 @@ Examples:
 		// Run generators and collect their fragments
 		var generatorFrags []*fragments.Fragment
 		if len(generators) > 0 {
-			generatorFrags, err = RunGenerators(cfg, generators, warnFunc)
+			generatorFrags, err = RunGenerators(cfg, generators, runVerbosity, warnFunc)
 			if err != nil {
 				return fmt.Errorf("failed to run generators: %w", err)
 			}
@@ -234,6 +240,7 @@ Examples:
 				AutoApprove: true,
 				Mode:        mode,
 				Env:         pluginCfg.Env,
+				Verbosity:   uint32(runVerbosity * 16), // Each -v adds 16 to verbosity level
 			},
 		}
 
@@ -273,10 +280,10 @@ Examples:
 		var client *pb.PluginClient
 		if pluginCfg.BinaryPath != "" {
 			// Use external plugin binary
-			client, err = pb.NewPluginClient(pluginCfg.BinaryPath, pluginCfg.Args)
+			client, err = pb.NewPluginClient(pluginCfg.BinaryPath, pluginCfg.Args, runVerbosity)
 		} else {
 			// Use built-in plugin via self-invocation
-			client, err = pb.NewSelfInvokingClient(pluginName)
+			client, err = pb.NewSelfInvokingClient(pluginName, runVerbosity)
 		}
 		if err != nil {
 			return fmt.Errorf("failed to start plugin: %w", err)
@@ -309,6 +316,7 @@ func init() {
 	runCmd.Flags().BoolVarP(&runDryRun, "dry-run", "n", false, "Show command that would be executed")
 	runCmd.Flags().BoolVarP(&runSuppressWarnings, "quiet", "q", false, "Suppress warnings (e.g., variable redefinition)")
 	runCmd.Flags().BoolVar(&runPrint, "print", false, "Print response and exit (non-interactive mode)")
+	runCmd.Flags().CountVarP(&runVerbosity, "verbose", "v", "Increase verbosity (can be repeated: -v, -vv, -vvv)")
 
 	// Register completions
 	_ = runCmd.RegisterFlagCompletionFunc("plugin", completePluginNames)

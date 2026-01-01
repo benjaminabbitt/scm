@@ -437,6 +437,39 @@ scm mcp
 
 Available MCP tools: `list_fragments`, `get_fragment`, `list_profiles`, `get_profile`, `assemble_context`, `list_prompts`, `get_prompt`
 
+### `scm completion`
+
+Generate shell completion scripts for tab-completion of commands, flags, fragments, profiles, and more.
+
+```bash
+scm completion [bash|zsh|fish|powershell]
+```
+
+**Bash:**
+```bash
+source <(scm completion bash)                              # Current session
+scm completion bash > /etc/bash_completion.d/scm           # Permanent (Linux)
+scm completion bash > $(brew --prefix)/etc/bash_completion.d/scm  # Permanent (macOS)
+```
+
+**Zsh:**
+```bash
+echo "autoload -U compinit; compinit" >> ~/.zshrc          # Enable if needed
+scm completion zsh > "${fpath[1]}/_scm"                    # Install, then restart shell
+```
+
+**Fish:**
+```fish
+scm completion fish | source                               # Current session
+scm completion fish > ~/.config/fish/completions/scm.fish  # Permanent
+```
+
+**PowerShell:**
+```powershell
+scm completion powershell | Out-String | Invoke-Expression # Current session
+scm completion powershell > scm.ps1                        # Save, then source from profile
+```
+
 ## MCP Server Setup
 
 SCM can run as an MCP server, allowing AI assistants like Claude Code to access your context fragments and profiles directly during conversations.

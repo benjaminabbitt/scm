@@ -386,8 +386,8 @@ func distillContent(pluginName string, env map[string]string, name, content, dis
 	builder.WriteString(content)
 	builder.WriteString("\n</content_to_compress>")
 
-	// Create plugin client
-	client, err := pb.NewSelfInvokingClient(pluginName)
+	// Create plugin client (verbosity=0 for distill operations)
+	client, err := pb.NewSelfInvokingClient(pluginName, 0)
 	if err != nil {
 		return "", fmt.Errorf("failed to start plugin: %w", err)
 	}
