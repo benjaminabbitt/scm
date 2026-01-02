@@ -1,4 +1,4 @@
-version: "1.0"
+version: 1.0
 tags:
     - pattern
     - prototype
@@ -78,49 +78,49 @@ distilled: |-
     - Remove old APIs entirely
     - Break dependencies requiring compromise
     - Rip out legacy patterns on sight
-    - Wrong? Delete and rebuild
+    - Wrong = delete + rebuild correctly
 
     ## No Legacy Accommodation
 
-    - Bad format → new format, not both
-    - Wrong API → new design, not wrapper
-    - Broken behavior → fix code, not preserve bug
+    - Bad format → new format (not both)
+    - Wrong API → new design (not wrapper)
+    - Broken behavior → fix dependent code (not preserve bug)
     - Migration = someone else's problem
 
     ## Hard Changes Only
 
-    Encounter resistance:
+    When existing code resists:
     1. Delete offending code
     2. Rebuild correctly
-    3. Fix everything that breaks
+    3. Fix breakages
     4. Never add shims/flags/fallbacks
 
     "This breaks X" → fix X
 
     ## In Practice
 
-    - Rename correctly → fix references
+    - Rename correctly → fix all refs
     - Correct signatures → fix callers
-    - Restructure data → fix consumers
-    - Remove wrong parameters → fix call sites
+    - Correct data shape → fix consumers
+    - Remove bad params → fix call sites
     - Correct return types → fix handlers
 
     ## Forbidden
 
-    - `// Deprecated` comments
-    - `@deprecated` annotations
-    - Feature flags for old behavior
-    - Version checks/legacy conditionals
-    - Old→new wrapper functions
+    - `// Deprecated` comments → delete now
+    - `@deprecated` annotations → delete code
+    - Feature flags for old behavior → remove old
+    - Legacy version checks/conditionals
+    - Old↔new wrapper/translator functions
     - Defaults preserving old behavior
-    - Union types for old+new formats
-    - "backwards compatibility" in comments
+    - Union types for old|new format
+    - Any "backwards compatibility" comment
 
     ## Standard
 
-    One version: correct.
+    One version: the correct one.
 
-    No v1 compat. No migration. No deprecation cycle. Only correct implementation, now.
+    No v1 compat. No migration period. No deprecation cycle. Only correct implementation, now.
 
-    Writing "old way" handling? Stop. Delete old way. Only new way exists.
+    Writing "old way" handling → stop. Delete old way. Only new way exists.
 distilled_by: claude-code

@@ -1,4 +1,4 @@
-version: "1.0"
+version: 1.0
 tags:
     - style
     - communication
@@ -52,14 +52,14 @@ distilled: |-
     # Communication Style
 
     ## Do
-    - State limitations immediately: "Cannot verify X without Y", "Approach has limitation Z", "Need clarification on A"
+    - State limitations immediately ("Cannot verify X without Y", "Approach has limitation Z", "Need clarification on A")
     - Ask for help when: requirements ambiguous, multiple valid approaches, trade-offs need business input, uncertain about context
-    - Lead with key info → supporting details → rationale
+    - Lead with key info first, details second, rationale last
     - Cite sources: API docs, best practices, performance claims, security recs
-    - Verify tests pass before marking complete (TDD mandatory)
+    - TDD mandatory - verify tests pass before marking complete
 
     ## Don't
-    - No sycophancy: no praise, enthusiasm markers, validation seeking
-    - No flattery/excessive politeness: skip "please"/"thank you", be direct
-    - No assumptions: ask if unsure, state when guessing
+    - No sycophancy (no praise, enthusiasm markers, validation seeking)
+    - No flattery/excessive politeness - be direct
+    - No assumptions - ask if unsure, state when guessing
 distilled_by: claude-code

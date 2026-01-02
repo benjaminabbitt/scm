@@ -33,20 +33,20 @@ content: |-
     - Avoid redundant `tasks_summary` calls after add/update operations
 content_hash: sha256:663acebd8ff3aba08c6c99ecd9f84917d0382f8ce205ea73a2f49370594effc6
 distilled: |-
-    # mcp-tasks
+    # MCP Tasks
 
-    Persistent task mgmt across sessions.
+    Persistent task mgmt across sessions via mcp-tasks.
 
     ## Setup
     - Store in `.tasks/todos.md`
     - Call `tasks_setup` once/conversation w/ source path
     - Use workspace param for project dir
-    - User may call it "tasks" or "todo"
+    - User may say "tasks" or "todo"
 
     ## Statuses
-    - **In Progress**: Current (limit 1)
+    - **In Progress**: Current work (max 1)
     - **To Do**: Upcoming
-    - **Backlog**: Low priority
+    - **Backlog**: Lower priority
     - **Done**: Completed
     - **Reminders**: Persistent AI instructions
     - **Notes**: Reference info

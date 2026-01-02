@@ -12,7 +12,7 @@ import (
 
 const (
 	// SCMContextFile is the file where assembled context is written
-	SCMContextFile = ".scp.context.md"
+	SCMContextFile = ".scm.context.md"
 
 	// Section markers for managed content in primary context files
 	scmSectionBegin = "<!-- SCM:BEGIN -->"
@@ -73,7 +73,7 @@ func GetContextFileConfig(backendName string) ContextFileConfig {
 	}
 }
 
-// WriteContextFiles writes the assembled context to .scp.context.md and updates
+// WriteContextFiles writes the assembled context to .scm.context.md and updates
 // the primary context file (e.g., CLAUDE.md) with a reference to it.
 // workDir is the directory where files should be written.
 func WriteContextFiles(backendName, workDir string, fragments []*pb.Fragment) error {
@@ -96,7 +96,7 @@ func WriteContextFiles(backendName, workDir string, fragments []*pb.Fragment) er
 	}
 	contextContent := strings.Join(parts, "\n\n---\n\n")
 
-	// Write .scp.context.md
+	// Write .scm.context.md
 	contextPath := filepath.Join(workDir, SCMContextFile)
 	if err := os.WriteFile(contextPath, []byte(contextContent), 0644); err != nil {
 		return fmt.Errorf("failed to write %s: %w", SCMContextFile, err)
@@ -153,7 +153,7 @@ func updatePrimaryContextFile(path string, supportsInclude bool) error {
 func CleanupContextFiles(backendName, workDir string) error {
 	config := GetContextFileConfig(backendName)
 
-	// Remove .scp.context.md
+	// Remove .scm.context.md
 	contextPath := filepath.Join(workDir, SCMContextFile)
 	if err := os.Remove(contextPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to remove %s: %w", SCMContextFile, err)

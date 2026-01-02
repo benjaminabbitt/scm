@@ -1,4 +1,4 @@
-version: "1.0"
+version: 1.0
 tags:
     - typescript
     - language
@@ -110,59 +110,49 @@ distilled: |-
     # TypeScript Dev
 
     ## Config
-    - **tsconfig**: strict mode required
-    ```json
-    {"compilerOptions": {"strict": true, "noImplicitAny": true, "strictNullChecks": true, "noUncheckedIndexedAccess": true}}
-    ```
-    - **Tools**: npm/pnpm/yarn, vitest/jest, ESLint+Prettier, tsc/esbuild/swc
+    - tsconfig: strict mode required (strict, noImplicitAny, strictNullChecks, noUncheckedIndexedAccess)
+    - Tools: npm/pnpm/yarn, vitest/jest, ESLint+Prettier, tsc/esbuild/swc
 
     ## Naming
-    - PascalCase: classes, interfaces, types, enums
-    - camelCase: functions, variables, parameters
+    - PascalCase: classes/interfaces/types/enums
+    - camelCase: functions/variables/params
     - kebab-case: files (`user-service.ts`)
-    - Tests: co-located `.test.ts`
+    - Tests: `.test.ts` co-located
     - CONSTANT_CASE: true globals only
-    - Abbreviations as words: `loadHttpUrl`
+    - Abbrevs as words: `loadHttpUrl`
 
     ## Type Safety
-    - Never: `any`, `@ts-ignore`, `@ts-nocheck`
-    - Avoid: type assertions (`as`), non-null assertions (`!`)
+    - Never: `any`, `@ts-ignore`, type assertions (`as`), non-null assertions (`!`)
     - Use `unknown` for indeterminate types
     - Explicit return types for public APIs
 
     ## Imports/Exports
     - ES modules only, named exports only (no default)
-    - `import type { X }` for types
+    - `import type` for type-only
     - Include `.js` extension for ESM
 
     ## Variables
-    - Never `var`; prefer `const`, use `let` when needed
-    - One per declaration
+    - Never `var`; prefer `const`, use `let` if reassignment needed
 
-    ## Types
-    - `interface` for object shapes
-    - `type` for unions, intersections, mapped, primitives
+    ## Interfaces vs Types
+    - `interface` for objects; `type` for unions/intersections/mapped/primitives
 
     ## Classes
     - `readonly` for immutable props
     - Parameter properties: `constructor(private readonly x: X)`
-    - TS visibility (`private`/`protected`), not `#`
+    - Use TS visibility (`private`/`protected`), not `#`
 
     ## Functions
-    - Declarations for named, arrows for callbacks
-    - Explicit returns on public APIs
-
-    ## Utility Types
-    `Partial`, `Required`, `Readonly`, `Pick`, `Omit`, `Record`, `Extract`, `Exclude`
+    - Declarations for named fns, arrows for callbacks/this-binding
 
     ## Errors
     - Throw `Error` instances only
-    - Never empty catch blocks
+    - No empty catch blocks
 
     ## Control Flow
     - Always use braces
-    - `===`/`!==` only (exception: `== null`)
+    - `===`/`!==` only (except `== null`)
 
-    ## Banned
-    `var`, `any`, `@ts-ignore`, default exports, `namespace`, `eval()`, prototype modification, wrapper objects (`new String()`)
+    ## Disallowed
+    var, any, @ts-ignore, @ts-nocheck, default exports, namespace, eval(), prototype modification, wrapper objects
 distilled_by: claude-code

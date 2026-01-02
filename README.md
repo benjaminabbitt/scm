@@ -242,6 +242,22 @@ SCM uses plugins to interface with language models. Built-in plugins:
 
 > **Note**: The `codex` plugin is provisional and untested. The author does not have a Codex subscription. Command-line arguments are based on public documentation and may need adjustment.
 
+#### Claude Code Context Workaround
+
+Claude Code ignores context passed via `--append-system-prompt` after a context reset (e.g., when conversation history is cleared or compacted). To ensure SCM context remains available, the plugin uses a file-based workaround:
+
+1. Writes assembled context to `.scm.context.md` in the working directory
+2. Updates `CLAUDE.md` with a managed section containing `@.scm.context.md`
+3. Claude Code's `@file` include syntax reads this on every prompt
+
+The managed section in `CLAUDE.md` is delimited by `<!-- SCM:BEGIN -->` and `<!-- SCM:END -->` markers. SCM only modifies content within these markers, preserving any other content in `CLAUDE.md`.
+
+**Files created:**
+- `.scm.context.md` - Contains the assembled context
+- `CLAUDE.md` - Updated with reference (created if missing)
+
+Consider adding `.scm.context.md` to `.gitignore` if you don't want to track the generated context file.
+
 **Using a different plugin:**
 
 ```bash

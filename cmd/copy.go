@@ -27,7 +27,7 @@ var (
 	copyPrompts   []string
 	copyProfiles  []string
 	copyVerbose   bool
-	copyDev       bool // Dev mode: allow copying to resources directory
+	copyDev       bool // Dev mode: allow copying to embedded location
 	copyConfig    bool // Copy config.yaml
 )
 
@@ -35,7 +35,7 @@ var (
 type Location int
 
 const (
-	LocationResources Location = iota
+	LocationEmbedded Location = iota
 	LocationHome
 	LocationProject
 	LocationPath // Arbitrary filesystem path
@@ -49,8 +49,8 @@ type ParsedLocation struct {
 
 func parseLocation(s string) (ParsedLocation, error) {
 	switch strings.ToLower(s) {
-	case "resources", "r":
-		return ParsedLocation{Type: LocationResources}, nil
+	case "embedded", "e":
+		return ParsedLocation{Type: LocationEmbedded}, nil
 	case "home", "h":
 		return ParsedLocation{Type: LocationHome}, nil
 	case "project", "p":
@@ -64,14 +64,14 @@ func parseLocation(s string) (ParsedLocation, error) {
 			}
 			return ParsedLocation{Type: LocationPath, Path: absPath}, nil
 		}
-		return ParsedLocation{}, fmt.Errorf("invalid location %q: must be resources (r), home (h), project (p), or a path", s)
+		return ParsedLocation{}, fmt.Errorf("invalid location %q: must be embedded (e), home (h), project (p), or a path", s)
 	}
 }
 
 func (l Location) String() string {
 	switch l {
-	case LocationResources:
-		return "resources"
+	case LocationEmbedded:
+		return "embedded"
 	case LocationHome:
 		return "home"
 	case LocationProject:
@@ -109,10 +109,10 @@ var copyCmd = &cobra.Command{
 	Use:     "copy <from> <to>",
 	Aliases: []string{"cp"},
 	Short:   "Copy fragments and prompts between locations",
-	Long: `Copy context fragments and prompts between resources, home, project, or a path.
+	Long: `Copy context fragments and prompts between embedded, home, project, or a path.
 
 Locations:
-  resources (r)  - Embedded default fragments and prompts
+  embedded (e)   - Embedded default fragments and prompts
   home (h)       - ~/.scm directory
   project (p)    - .scm directory in the current project
   <path>         - Arbitrary directory path (creates .scm subdirectory)
@@ -122,31 +122,31 @@ Header behavior:
   - Copying FROM project: removes the header from files
 
 Examples:
-  # Copy all embedded fragments to project (positional args)
-  scm copy r p
-  scm copy resources project
+  # Copy all embedded fragments to project
+  scm copy e p
+  scm copy embedded project
 
   # Copy to arbitrary path
-  scm copy r /path/to/dir
-  scm copy resources ./my-config
+  scm copy e /path/to/dir
+  scm copy embedded ./my-config
 
   # Clear destination before copying (destroys customizations)
-  scm copy r p --clear
+  scm copy e p --clear
 
   # Copy specific fragments from home to project
   scm copy h p -f security -f golang
 
   # Copy fragments with specific tags
-  scm copy r h -t review
+  scm copy e h -t review
 
-  # Copy prompts from resources to project
-  scm copy r p -p code-review
+  # Copy prompts from embedded to project
+  scm copy e p -p code-review
 
   # Force overwrite existing files
-  scm copy r p --force
+  scm copy e p --force
 
   # Copy fragments for specific profiles
-  scm copy r p --profile go-developer`,
+  scm copy e p --profile go-developer`,
 	Args: cobra.ExactArgs(2),
 	RunE: runCopy,
 }
@@ -167,8 +167,8 @@ func runCopy(cmd *cobra.Command, args []string) error {
 	}
 
 	// Resources cannot be a destination unless in dev mode
-	if to.Type == LocationResources && !copyDev {
-		return fmt.Errorf("cannot copy to resources (use --dev flag when working on scm itself)")
+	if to.Type == LocationEmbedded && !copyDev {
+		return fmt.Errorf("cannot copy to embedded (use --dev flag when working on scm itself)")
 	}
 
 	// Get source and destination paths
@@ -200,7 +200,7 @@ func runCopy(cmd *cobra.Command, args []string) error {
 			scmDir = filepath.Join(rootDir, config.SCMDirName)
 		case LocationPath:
 			scmDir = filepath.Join(to.Path, config.SCMDirName)
-		case LocationResources:
+		case LocationEmbedded:
 			// Resources clear handled in dev mode - clear resources directory
 			pwd, _ := os.Getwd()
 			scmDir = filepath.Join(pwd, "resources")
@@ -292,7 +292,7 @@ func runCopy(cmd *cobra.Command, args []string) error {
 
 func getLocationPaths(loc ParsedLocation) (fragDir, promptDir string, err error) {
 	switch loc.Type {
-	case LocationResources:
+	case LocationEmbedded:
 		// For dev mode, resources are in the current directory
 		// When reading, resources are embedded (handled specially)
 		// When writing (dev mode), use the resources directory in pwd
@@ -336,7 +336,7 @@ func getLocationPaths(loc ParsedLocation) (fragDir, promptDir string, err error)
 
 func getConfigPath(loc ParsedLocation) (string, error) {
 	switch loc.Type {
-	case LocationResources:
+	case LocationEmbedded:
 		// For dev mode, return path in resources directory
 		pwd, err := os.Getwd()
 		if err != nil {
@@ -388,7 +388,7 @@ func copyConfigWithOptions(from ParsedLocation, to Location, _ /* addHeader */, 
 
 	// Get source data
 	var data []byte
-	if from.Type == LocationResources {
+	if from.Type == LocationEmbedded {
 		data, err = resources.GetEmbeddedConfig()
 		if err != nil {
 			return nil, fmt.Errorf("failed to read embedded config: %w", err)
@@ -459,7 +459,7 @@ func copyFragmentsWithOptions(from Location, srcDir, dstDir string, filter []str
 		return nil, err
 	}
 
-	if from == LocationResources {
+	if from == LocationEmbedded {
 		return copyFragmentsFromResources(dstDir, filter, addHeader)
 	}
 
@@ -607,7 +607,7 @@ func copyPromptsWithOptions(from Location, srcDir, dstDir string, filter []strin
 		return nil, err
 	}
 
-	if from == LocationResources {
+	if from == LocationEmbedded {
 		return copyPromptsFromResources(dstDir, filter, addHeader)
 	}
 
@@ -947,7 +947,7 @@ func init() {
 	copyCmd.Flags().StringArrayVarP(&copyProfiles, "profile", "p", nil, "Copy fragments for these profiles")
 	copyCmd.Flags().BoolVarP(&copyVerbose, "verbose", "v", false, "List individual files")
 
-	copyCmd.Flags().BoolVar(&copyDev, "dev", false, "Dev mode: allow copying to resources directory (for scm development)")
+	copyCmd.Flags().BoolVar(&copyDev, "dev", false, "Dev mode: allow copying to embedded location (for scm development)")
 	copyCmd.Flags().BoolVar(&copyConfig, "include-config", true, "Include config.yaml in copy (use --include-config=false to skip)")
 
 	// Register positional arg completions (for source/destination locations)

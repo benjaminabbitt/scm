@@ -1,4 +1,4 @@
-version: "1.0"
+version: 1.0
 tags:
     - review
     - profile
@@ -60,7 +60,7 @@ distilled: |-
     ## Synchronization
     - Lock granularity appropriate?
     - Locks held minimally?
-    - Lock ordering consistent?
+    - Lock ordering consistent (deadlock prevention)?
 
     ## Deadlock Prevention
     - Circular wait possible?
@@ -75,5 +75,5 @@ distilled: |-
     ## Resource Management
     - Resources released in concurrent contexts?
     - Resource exhaustion under load?
-    - Connection pools sized right?
+    - Connection pools sized properly?
 distilled_by: claude-code

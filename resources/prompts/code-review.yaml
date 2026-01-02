@@ -49,9 +49,9 @@ distilled: |-
     ## Perspectives
     - **Architecture** - Structure, boundaries, testability, tech debt
     - **Performance** - Algorithms, data structures, complexity
-    - **Standards** - Readability, naming, docs, patterns
+    - **Standards** - Readability, naming, docs, canonical patterns
     - **Concurrency** - Thread safety, races, sync (if applicable)
-    - **Domain** - Business logic, domain model (if applicable)
+    - **Domain** - Business logic, domain model accuracy (if applicable)
 
     ## Process
     1. Understand code purpose
@@ -60,10 +60,10 @@ distilled: |-
     4. Include file:line refs
     5. Note positive patterns
 
-    ## Output
+    ## Output Format
     - **Summary** - What code does
-    - **Critical** - Must fix before merge
-    - **Medium** - Should address, non-blocking
+    - **Critical** - Must fix pre-merge
+    - **Medium** - Should fix, non-blocking
     - **Minor** - Style/small improvements
     - **Positive** - Good patterns to maintain
 distilled_by: claude-code

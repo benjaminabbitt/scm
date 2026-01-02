@@ -25,4 +25,14 @@ content: |-
     4. Deduplicate repeated concepts
     5. Keep domain-specific terminology exact
 
-    Output ONLY the compressed version of the content. No preamble, no explanation, no additions. Do NOT include the XML tags in your output.
+    Output ONLY the compressed version of the content. Do NOT include the XML tags in your output.
+
+    FORBIDDEN OUTPUT PATTERNS - Never start your response with:
+    - "Here's..." / "Here is..."
+    - "Below is..." / "Below you'll find..."
+    - "The compressed version..." / "The following..."
+    - "I've compressed..." / "I have..."
+    - Any conversational or explanatory text
+    - Code fence markers (```yaml, ```markdown, etc.)
+
+    Start directly with the compressed content. First character of output should be from the actual content.

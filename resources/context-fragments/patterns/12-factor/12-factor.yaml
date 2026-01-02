@@ -56,29 +56,26 @@ content: |-
     Run admin and management tasks as one-off processes. One-off admin processes (database migrations, console/REPL, one-time scripts) should run in an identical environment to the app's regular long-running processes. Run against a release using the same codebase and config. Admin code ships with application code to avoid synchronization issues.
 content_hash: sha256:f93f98d5fa45c5f7ee1114f32a4f4aa3afb078b21401ad1c6d6276e297521795
 distilled: |-
-    Here's the compressed version:
-
     # 12-Factor App
 
-    Cloud-native SaaS methodology for portable, scalable apps.
+    Methodology for cloud-native SaaS: portable, scalable, maintainable.
 
     ## I. Codebase
-    1 repo per app, many deploys. Shared code → libraries via deps.
+    1 repo, many deploys. Shared code → libraries via deps. Same codebase across dev/staging/prod.
 
     ## II. Dependencies
-    Explicitly declare/isolate all deps. Never rely on system packages. Use manifest (go.mod, package.json, requirements.txt) + isolation tool.
+    Declare explicitly (go.mod, package.json, requirements.txt). Isolate deps—no system-wide packages.
 
     ## III. Config
-    Store in env vars. Config = deploy-varying data (creds, hosts). Never commit secrets. Strict separation from code.
+    Store in env vars. Strict separation from code. Never commit secrets.
 
     ## IV. Backing Services
-    Treat as attached resources (DBs, queues, caches, APIs). No distinction local vs third-party. Swap via config, not code.
+    Treat as attached resources (DBs, queues, caches, APIs). Swap local↔cloud via config only.
 
     ## V. Build, Release, Run
-    Strictly separate:
-    - **Build**: Code → executable (compile, deps, assets)
-    - **Release**: Build + config. Unique ID, immutable
-    - **Run**: Execute in environment
+    - **Build**: code → executable (compile, fetch deps)
+    - **Release**: build + config, unique ID, immutable
+    - **Run**: execute in environment
 
     Rollback = deploy previous release.
 
@@ -86,20 +83,20 @@ distilled: |-
     Stateless, share-nothing. Persist data in backing services. No sticky sessions—use Redis/Memcached for session state.
 
     ## VII. Port Binding
-    Self-contained, export HTTP via port. No runtime webserver injection. Routing layer maps hostname → port.
+    Self-contained; export HTTP via port binding. Routing layer maps hostname → port.
 
     ## VIII. Concurrency
-    Scale horizontally via process model. Different types (web, worker) for different workloads. Use OS process manager, not PID files.
+    Scale horizontally via process model. Web processes for HTTP, workers for background jobs. Use OS process manager.
 
     ## IX. Disposability
-    Fast startup, graceful shutdown. On SIGTERM: stop accepting, finish current, exit. Workers return jobs to queue. Design for sudden death.
+    Fast startup, graceful shutdown on SIGTERM. Return incomplete jobs to queue. Design for sudden death.
 
     ## X. Dev/Prod Parity
-    Minimize gaps: time (hours not weeks), personnel (devs deploy), tools (same DBs/queues). Use Docker for local parity.
+    Minimize time/personnel/tools gaps. Same backing services across environments. Use Docker for local parity.
 
     ## XI. Logs
-    Event streams to stdout. App decoupled from log routing/storage. Environment handles capture → aggregators.
+    Event streams to stdout. Env routes to aggregators (Splunk, Datadog, ELK). App decoupled from log management.
 
     ## XII. Admin Processes
-    Run one-off tasks (migrations, REPL) in identical environment. Same codebase/config as app. Ship admin code with app.
+    Run one-off tasks (migrations, REPL, scripts) in identical environment. Admin code ships with app code.
 distilled_by: claude-code

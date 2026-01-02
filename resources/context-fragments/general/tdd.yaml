@@ -1,4 +1,4 @@
-version: "1.0"
+version: 1.0
 tags:
     - testing
     - tdd
@@ -51,24 +51,24 @@ content_hash: sha256:1a4514779dbf0d21fc5b81ead5478d2bf6aeed406a24ad5cce5631c5921
 distilled: |-
     # TDD Workflow
 
-    ## Cycle
-    1. **Red**: Write failing test first - verify fails correctly, good isolation
-    2. **Green**: Minimal code to pass - no extras
-    3. **Refactor**: Keep green, apply SOLID, dedupe, use existing libs, improve names
+    ## Cycle (Mandatory)
+    1. **Red**: Write failing test first; verify fails correctly; ensure isolation
+    2. **Green**: Minimal code to pass; no extras
+    3. **Refactor**: Keep green; apply SOLID; remove duplication; use existing libs; improve names
 
     ## Integration Tests
-    - Run actual binaries
-    - Tag slow tests
-    - Clean up after
+    - Run actual binaries (no hooks)
+    - Tag slow tests appropriately
+    - Clean up after tests
 
     ## Naming
-    `test_<action>_<condition>_<result>`
+    `test_<action>_<condition>_<expected_result>`
     - Python: snake_case
     - C#/Java/JS: camelCase
-    - Prioritize readability
+    - Readability > format
 
     ## Organization
-    - Human readable
+    - Prioritize readability
     - Order by complexity: simple examples top, edge cases bottom
     - Tests = documentation
 distilled_by: claude-code

@@ -1,4 +1,4 @@
-version: "1.0"
+version: 1.0
 tags:
     - review
     - profile
@@ -51,12 +51,13 @@ content: |-
     - Does it fit the overall system design?
 content_hash: sha256:1a37043337e1d75287c66615e9c31f41eb9a974e4b761d0458fbe2ddd01b2124
 distilled: |-
-    ```yaml
-    # Architect Review - Structural quality & maintainability
+    # Architect Review
+
+    Review code for structure & maintainability.
 
     ## Separation of Concerns
     - Clear responsibility division?
-    - Business logic separate from infrastructure?
+    - Business logic separate from infra?
     - Cross-cutting concerns isolated?
 
     ## Testability
@@ -68,16 +69,17 @@ distilled: |-
     - Minimal coupling, correct dependency direction?
 
     ## Technical Debt
-    - Unnecessary complexity introduced?
+    - Unnecessary complexity?
     - Shortcuts documented (TODOs)?
     - Solution proportional to problem?
 
     ## Cohesion
     - Single purpose per module?
-    - Related functions grouped, functionality placed correctly?
+    - Related functions grouped?
+    - Functionality in right place?
 
     ## Extensibility
-    - Extensible without modification?
+    - Extendable without modification?
     - Extension points identified?
     - Open for future needs, no overengineering?
 
@@ -85,5 +87,4 @@ distilled: |-
     - Follows existing patterns?
     - Similar problems solved similarly?
     - Fits overall system design?
-    ```
 distilled_by: claude-code

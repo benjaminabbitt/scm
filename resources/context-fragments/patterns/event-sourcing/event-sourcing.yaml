@@ -1,4 +1,4 @@
-version: "1.0"
+version: 1.0
 tags:
     - pattern
     - architecture
@@ -106,16 +106,14 @@ distilled: |-
     - Temporal queries: reconstruct state at any time
 
     ## Event Design
-    - Past tense names: `OrderPlaced`, `PaymentReceived`, `ItemShipped`
+    - Past tense names: `OrderPlaced`, `PaymentReceived`
     - Immutable, never update/delete
     - Include all necessary data
-    - Version on schema evolution
-    - Small, focused on single facts
+    - Version for schema evolution
+    - Small, single-fact focused
 
     ## Event Structure
-    ```
-    id, type, aggregateId, version, timestamp, data, metadata
-    ```
+    - id, type, aggregateId, version, timestamp, data, metadata
 
     ## Aggregates
     - Consistency boundary
@@ -126,43 +124,40 @@ distilled: |-
     ## Event Store Requirements
     - Append-only writes
     - Read by aggregate ID or position
-    - Optimistic concurrency via version
-    - Guaranteed ordering per stream
+    - Optimistic concurrency via versions
+    - Ordered within stream
 
     ## Projections
     - Read-optimized views from events
     - Rebuildable anytime
-    - Multiple projections per event set
+    - Multiple projections per event stream
     - Async = eventual consistency
 
     ## Snapshots
-    - Periodic state storage for faster loading
+    - Store aggregate state periodically for faster loading
     - Load snapshot + replay newer events
-    - Optimization, not source of truth
-    - Rebuild when aggregate logic changes
+    - Optimization only, not source of truth
 
-    ## When to Use
+    ## Use When
     - Audit trail required
     - Need state evolution history
-    - Complex domain with business events
-    - Temporal queries
-    - Event-driven integration
+    - Rich business events
+    - Temporal queries needed
 
-    ## When NOT to Use
+    ## Avoid When
     - Simple CRUD, no audit needs
     - High-frequency same-entity updates
-    - Unfamiliar team
-    - No clear business events
+    - Team unfamiliar with pattern
 
     ## Pitfalls
-    - Large events → keep focused, split
-    - Event versioning → plan upfront
-    - Unbounded streams → use snapshots
-    - Mixing concerns → events = facts, not commands
-    - Eventual consistency → UI must handle stale reads
+    - Large events → keep focused
+    - Plan event versioning upfront
+    - Snapshot long-lived aggregates
+    - Events = facts, not commands
+    - Handle eventual consistency in UI
 
     ## Testing
-    - Given events → When command → Then events
-    - Given events → Assert projection state
-    - Test event upcasting for migrations
+    - Given events → command → assert new events
+    - Given events → assert projection state
+    - Test event upcasting
 distilled_by: claude-code

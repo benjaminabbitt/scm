@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -36,11 +37,10 @@ var (
 	distillForce       bool
 	distillOnlyPrompts bool
 	distillSkipPrompts bool
-	distillResources   bool
 )
 
 var distillCmd = &cobra.Command{
-	Use:   "distill [flags]",
+	Use:   "distill [path] [flags]",
 	Short: "Create minimal-token versions of fragments and prompts",
 	Long: `Distill fragments and prompts to create minimal-token versions that preserve meaning.
 
@@ -52,21 +52,26 @@ and distilled_by metadata.
 When loading fragments, the distilled version is used if available
 (controlled by use_distilled config setting).
 
+Path argument:
+  If provided, distill fragments and prompts at that path. The path should contain
+  context-fragments/ and/or prompts/ subdirectories.
+  If omitted, uses the standard .scm directories from configuration.
+
 Use --profile/-p to distill only fragments associated with specific profiles.
 Use --fragment/-f to distill specific fragments by name.
-Use --prompt/-P to distill specific prompts by name.
+Use --prompt/-r to distill specific prompts by name.
 Use --prompts-only to distill only prompts (skip fragments).
 Use --skip-prompts to distill only fragments (skip prompts).
-Use --resources to distill embedded resources (for packaging).
 
 Examples:
   scm distill                           # Distill all fragments and prompts
+  scm distill ./resources               # Distill resources/ directory
   scm distill -p go-developer           # Distill fragments for go-developer profile
   scm distill -f style/direct           # Distill specific fragments
-  scm distill -P code-review            # Distill specific prompts
+  scm distill -r code-review            # Distill specific prompts
   scm distill --prompts-only            # Distill only prompts
-  scm distill --dry-run                 # Preview what would be distilled
-  scm distill --resources               # Distill resources/ for packaging`,
+  scm distill --dry-run                 # Preview what would be distilled`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: runDistill,
 }
 
@@ -77,9 +82,19 @@ func runDistill(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Can't distill embedded resources without --resources flag
-	if cfg.IsEmbedded() && !distillResources {
-		return fmt.Errorf("no .scm directory found; use 'scm copy' to create one, or use --resources for packaging")
+	// Determine base path from argument or use config
+	var basePath string
+	if len(args) > 0 {
+		basePath, err = filepath.Abs(args[0])
+		if err != nil {
+			return fmt.Errorf("invalid path %q: %w", args[0], err)
+		}
+		// Verify path exists
+		if _, err := os.Stat(basePath); os.IsNotExist(err) {
+			return fmt.Errorf("path does not exist: %s", basePath)
+		}
+	} else if cfg.IsEmbedded() {
+		return fmt.Errorf("no .scm directory found; use 'scm copy' to create one, or specify a path")
 	}
 
 	// Determine which plugin to use
@@ -116,9 +131,9 @@ func runDistill(cmd *cobra.Command, args []string) error {
 	// Distill fragments unless --prompts-only is set or specific prompts are requested
 	if !distillOnlyPrompts && len(distillPromptNames) == 0 {
 		var fragmentDirs []string
-		if distillResources {
-			// Use resources directory for packaging
-			fragmentDirs = []string{"resources/context-fragments"}
+		if basePath != "" {
+			// Use specified path
+			fragmentDirs = []string{filepath.Join(basePath, "context-fragments")}
 		} else {
 			fragmentDirs, err = GetFragmentDirs()
 			if err != nil {
@@ -248,9 +263,9 @@ func runDistill(cmd *cobra.Command, args []string) error {
 	// Prompts use the same YAML format as fragments
 	if !distillSkipPrompts && len(distillFragments) == 0 && distillProfile == "" {
 		var promptDirs []string
-		if distillResources {
-			// Use resources directory for packaging
-			promptDirs = []string{"resources/prompts"}
+		if basePath != "" {
+			// Use specified path
+			promptDirs = []string{filepath.Join(basePath, "prompts")}
 		} else {
 			promptDirs, err = GetPromptDirs()
 			if err != nil {
@@ -431,22 +446,74 @@ func distillContent(pluginName string, env map[string]string, name, content, dis
 // preamblePattern matches a line with 3+ dashes (markdown horizontal rule/separator)
 var preamblePattern = regexp.MustCompile(`(?m)^-{3,}\s*$`)
 
-// stripDistillPreamble removes any content before the first "---+" separator.
-// LLMs sometimes add explanatory text before the actual distilled content.
+// conversationalPrefixes are patterns LLMs add despite instructions not to.
+// These are checked case-insensitively at the start of content.
+var conversationalPrefixes = []string{
+	"here's ",
+	"here is ",
+	"below is ",
+	"below you'll find ",
+	"the compressed version",
+	"the following ",
+	"i've compressed ",
+	"i have compressed ",
+	"my compressed version",
+}
+
+// codeFencePattern matches opening code fences like ```yaml or ```markdown
+var codeFencePattern = regexp.MustCompile("^```[a-z]*\\s*\n")
+
+// stripDistillPreamble removes conversational prefixes and separators that LLMs
+// sometimes add despite instructions. Handles:
+// - "Here's the compressed version:" type prefixes
+// - "---" separators following conversational preamble
+// - Code fence markers (```yaml, ```markdown)
 func stripDistillPreamble(content string) string {
-	loc := preamblePattern.FindStringIndex(content)
-	if loc == nil {
-		return content
+	content = strings.TrimSpace(content)
+
+	// Track if we found conversational preamble
+	foundPreamble := false
+
+	// Check for conversational prefixes (case-insensitive)
+	lowerContent := strings.ToLower(content)
+	for _, prefix := range conversationalPrefixes {
+		if strings.HasPrefix(lowerContent, prefix) {
+			foundPreamble = true
+			// Find end of the line containing the prefix
+			if idx := strings.Index(content, "\n"); idx != -1 {
+				content = strings.TrimSpace(content[idx+1:])
+				lowerContent = strings.ToLower(content)
+			}
+			break
+		}
 	}
 
-	// Find the end of the separator line
-	afterSep := content[loc[1]:]
-	// Skip any leading newline after the separator
-	if len(afterSep) > 0 && afterSep[0] == '\n' {
-		afterSep = afterSep[1:]
+	// Only strip "---" separator if we found conversational preamble before it
+	// This prevents stripping legitimate "---" separators in actual content
+	if foundPreamble {
+		if loc := preamblePattern.FindStringIndex(content); loc != nil && loc[0] < 100 {
+			afterSep := content[loc[1]:]
+			if len(afterSep) > 0 && afterSep[0] == '\n' {
+				afterSep = afterSep[1:]
+			}
+			content = strings.TrimSpace(afterSep)
+		}
 	}
 
-	return strings.TrimSpace(afterSep)
+	// Strip code fence if present at start
+	if loc := codeFencePattern.FindStringIndex(content); loc != nil && loc[0] == 0 {
+		content = content[loc[1]:]
+		// Also strip closing fence if present
+		if idx := strings.LastIndex(content, "```"); idx != -1 {
+			// Only strip if it's on its own line at the end
+			afterFence := strings.TrimSpace(content[idx+3:])
+			if afterFence == "" {
+				content = strings.TrimSpace(content[:idx])
+			}
+		}
+	}
+
+	return content
 }
 
 var distillCleanDryRun bool
@@ -599,7 +666,6 @@ func init() {
 	distillCmd.Flags().BoolVar(&distillForce, "force", false, "Re-distill even if unchanged")
 	distillCmd.Flags().BoolVar(&distillOnlyPrompts, "prompts-only", false, "Distill only prompts (skip fragments)")
 	distillCmd.Flags().BoolVar(&distillSkipPrompts, "skip-prompts", false, "Distill only fragments (skip prompts)")
-	distillCmd.Flags().BoolVar(&distillResources, "resources", false, "Distill resources/ directory (for packaging)")
 
 	distillCleanCmd.Flags().BoolVarP(&distillCleanDryRun, "dry-run", "n", false, "Show what would be deleted without doing it")
 

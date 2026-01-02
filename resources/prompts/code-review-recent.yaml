@@ -42,21 +42,20 @@ distilled: |-
 
     Review changes since last commit.
 
-    ## Steps
+    ## Step 1: Examine Changes
+    Run `git diff HEAD~1` (or `git diff --staged` for uncommitted).
 
-    1. **Examine**: `git diff HEAD~1` (or `git diff --staged` for uncommitted)
+    ## Step 2: Review Perspectives
+    - **Architecture** - Structure, boundaries, testability, tech debt
+    - **Performance** - Algorithms, data structures, complexity
+    - **Standards** - Readability, naming, docs, patterns
+    - **Concurrency** - Thread safety, races, sync (if applicable)
+    - **Domain** - Business logic, domain model (if applicable)
 
-    2. **Review Perspectives**:
-       - Architecture: structure, boundaries, testability, tech debt
-       - Performance: algorithms, data structures, complexity
-       - Standards: readability, naming, docs, patterns
-       - Concurrency: thread safety, races, sync (if applicable)
-       - Domain: business logic, domain model (if applicable)
-
-    3. **Report**:
-       - Summary: what changes accomplish
-       - Critical: must fix before merge
-       - Medium: should address, non-blocking
-       - Minor: style/small improvements
-       - Positives: good patterns worth noting
+    ## Step 3: Report
+    - **Summary** - What changes accomplish
+    - **Critical** - Must fix before merge
+    - **Medium** - Should address, non-blocking
+    - **Minor** - Style, small improvements
+    - **Positive** - Good patterns worth noting
 distilled_by: claude-code

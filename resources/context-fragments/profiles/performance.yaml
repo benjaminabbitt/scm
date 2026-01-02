@@ -60,53 +60,45 @@ content: |-
     - Is premature optimization being avoided?
 content_hash: sha256:a19a8038750c291a6a4700c7cb547e019878d1143fd178292e966a5049d90c3e
 distilled: |-
-    Here's the compressed version:
-
-    ```markdown
-    # Performance & Algorithms Review
-
-    CS-focused review: efficiency, data structures, algorithmic complexity.
+    # Performance Review
 
     ## Complexity
     - Time/space Big-O?
     - Hidden O(n) in loops?
-    - Better algorithm possible?
+    - Better algorithm available?
 
     ## Data Structures
-    - Right structure for access patterns?
+    - Right structure for access pattern?
     - HashMap vs TreeMap (ordering needed?)
-    - Array vs LinkedList (random vs sequential?)
-    - Set vs List (duplicates?)
-    - PriorityQueue/heap/sorted: which fits?
+    - Array vs linked list (random vs sequential?)
+    - Set vs list (duplicates?)
+    - Heap/priority queue fit?
 
     ## Memory
-    - Allocations minimized in hot paths?
-    - Unnecessary copies?
-    - Stream vs load entirely?
-    - Large objects by reference?
+    - Minimize allocations in hot paths
+    - Avoid unnecessary copies
+    - Stream vs load all
+    - Pass large objects by ref
 
     ## Caching
-    - Expensive computations cached?
-    - Invalidation correct?
-    - Memoization opportunities?
-    - Cache sizes bounded?
+    - Cache expensive repeated computations
+    - Correct invalidation?
+    - Bounded cache sizes
 
     ## I/O & Network
-    - Batched I/O?
-    - Pagination for large datasets?
-    - Round-trips minimized?
-    - Async where appropriate?
+    - Batch I/O ops
+    - Paginate large datasets
+    - Minimize round-trips
+    - Use async where appropriate
 
     ## Loops
-    - Work movable outside?
-    - Invariants hoisted?
-    - Early termination?
+    - Hoist invariants
+    - Early termination
     - Parallelizable?
 
     ## Profiling
-    - Profiled?
-    - Actual bottlenecks identified?
-    - Micro-optimizations justified?
-    - Premature optimization avoided?
-    ```
+    - Actually profiled?
+    - Real bottlenecks identified?
+    - Micro-opts justified by measurement?
+    - Avoid premature optimization
 distilled_by: claude-code

@@ -94,28 +94,31 @@ distilled: |-
     MCP server for reusable AI context fragments.
 
     ## MCP Tools
+
     - `list_fragments`: List fragments w/ tags
     - `get_fragment`: Get fragment by name
     - `list_profiles`: List profiles
     - `get_profile`: Get profile config
     - `assemble_context`: Combine fragments/profiles
-    - `list_prompts`/`get_prompt`: Saved prompts
+    - `list_prompts`: List prompts
+    - `get_prompt`: Get prompt by name
 
     ## Concepts
 
-    **Fragments**: Reusable context (coding standards, patterns, security)
+    **Fragments**: Reusable context (standards, patterns, guidelines)
     - Categories: general/, lang/, patterns/, profiles/
-    - Tagged for filtering; support {{variables}} (Mustache)
+    - Tagged for filtering
+    - {{variables}} via Mustache
 
     **Profiles**: Named fragment collections
-    - `developer`: Full dev (TDD, quality, security)
+    - `developer`: Full context (TDD, quality, security)
     - `go-developer`, `python-developer`: Language-specific
     - `reviewer`: Multi-perspective review
     - `prototype`: Rapid prototyping
 
-    **Distillation**: Token-optimized versions
-    - `no_distill: true` prevents compression
-    - Falls back to full content if none exists
+    **Distillation**: Token-optimized fragments
+    - `no_distill: true` skips compression
+    - Falls back to full content if unavailable
 
     ## Workflows
 
@@ -126,7 +129,10 @@ distilled: |-
     # Add fragments to profile
     assemble_context(profile="go-developer", fragments=["security"])
 
-    # Explore available
+    # Layer patterns
+    assemble_context(profile="developer", fragments=["patterns/cqrs", "patterns/event-sourcing"])
+
+    # Explore
     list_fragments()
     list_fragments(tags=["golang"])
     get_profile(name="reviewer")
@@ -137,6 +143,7 @@ distilled: |-
     ```
 
     ## Fragment Format
+
     ```yaml
     version: "1.0"
     tags: [golang, code-style]

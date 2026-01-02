@@ -1,4 +1,4 @@
-version: "1.0"
+version: 1.0
 tags:
     - documentation
     - readme
@@ -45,22 +45,41 @@ content: |-
     - Avoid marketing language; be direct and technical
 content_hash: sha256:39309db32877e5ad44ee81fea0ffd1abdc2004eda859b6dd11ccc99b253dce57
 distilled: |-
+    # write-readme
+
     Write/update README.md for developers.
 
-    Structure (order matters):
-    1. Name & one-liner
-    2. Problem - why care?
-    3. Solution - how it helps
-    4. Quick Start - install, config, first cmd
-    5. Usage Examples - common cases w/ commands
-    6. Configuration - key settings
-    7. Development - build/test/contribute (last)
+    ## Structure
+    1. **Name & One-liner** - What it is
+    2. **Problem** - Pain points solved
+    3. **Solution** - How it addresses them
+    4. **Quick Start** - Install, configure, first command
+    5. **Usage Examples** - Common commands
+    6. **Configuration** - Key settings
+    7. **Development** - Build, test, contribute (at end)
 
-    Don't: list file structure, be verbose
+    ## Don't
+    - Include filesystem/directory listings
+    - Be verbose
 
-    Updates: preserve existing unless conflicts; update changed features; keep author voice; add new sections; reorganize to structure above
+    ## Updating Existing README
+    - Preserve content unless outdated
+    - Update/remove changed features
+    - Keep author's voice
+    - Add new sections as needed
+    - Reorganize to match structure
 
-    Git history: check log/diffs for changes; small README edits = human refinements; large rewrites = generated; use commit msgs for context
+    ## Use Git History
+    - Check git log/diffs for recent changes
+    - Small README diffs = intentional human edits (important)
+    - Large rewrites = likely generated
+    - Review commit messages for context
 
-    Guidelines: value first; concise (bullets/code); examples > descriptions; dev docs last; "Why this?" if alternatives exist; no marketing
+    ## Guidelines
+    - Lead w/ value (problems/benefits first)
+    - Be concise (bullets, code blocks)
+    - Show don't tell (examples > descriptions)
+    - Dev instructions at end
+    - Add "Why this tool?" if alternatives exist
+    - No marketing speak; be direct
 distilled_by: claude-code

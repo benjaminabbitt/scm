@@ -108,44 +108,51 @@ content: |-
     ```
 content_hash: sha256:88330a15740255d9c6b512a00f13e99fb545675dd83dd9112fa7bc26f1f72d9e
 distilled: |-
-    # ast-grep: Structural Code Search & Replace
+    # ast-grep: Structural Code Search/Replace
+
+    AST-aware find/replace for large-scale refactoring. Matches code structure, not text.
 
     ## When to Use
     - Renaming functions/variables/types across codebase
-    - Refactoring API patterns
-    - Migrating deprecated patterns
-    - Finding structural code patterns
-    - Changes affecting many files
+    - Refactoring API patterns, migrating deprecated code
+    - Finding structural patterns (multi-file changes)
 
     ## Why Over Text Tools
-    - Structure-aware (AST, not text)
-    - Language-aware syntax understanding
-    - Safe refactoring (ignores strings/comments)
-    - Preserves formatting
+    - Structure/language-aware, safe refactoring
+    - Won't match strings/comments, preserves formatting
 
-    ## Basic Usage
+    ## Usage
+
     ```bash
-    ast-grep --pattern 'console.log($ARG)' --lang ts                    # Search
-    ast-grep --pattern 'OLD' --rewrite 'NEW' --lang ts                  # Replace
-    ast-grep --pattern 'OLD' --rewrite 'NEW' --interactive              # Review each
-    ast-grep --pattern 'OLD' --rewrite 'NEW' --lang py --update-all     # Apply in place
+    # Search
+    ast-grep --pattern 'console.log($ARG)' --lang ts
+
+    # Replace
+    ast-grep --pattern 'console.log($ARG)' --rewrite 'logger.debug($ARG)' --lang ts
+
+    # Interactive review
+    ast-grep -p 'OLD' -r 'NEW' --interactive
+
+    # Apply in place
+    ast-grep -p 'OLD' -r 'NEW' --lang py --update-all
     ```
 
     ## Pattern Syntax
-    - `$NAME` — Named metavar, matches single AST node
-    - `$$$` — Matches zero+ nodes (variadic)
-    - `$_` — Wildcard (don't capture)
+    - `$NAME` — matches single AST node
+    - `$$$` — matches zero+ nodes (variadic)
+    - `$_` — wildcard (no capture)
     - Literal code matches exactly
 
     ## Examples
+
     ```bash
     ast-grep -p 'getUserById($ID)' -r 'fetchUser($ID)' --lang ts
     ast-grep -p 'from "old/path"' -r 'from "new/path"' --lang ts
-    ast-grep -p 'dangerousOp($ARGS)' -r 'try { dangerousOp($ARGS) } catch (e) { handleError(e) }' --lang ts
     ast-grep -p 'createUser($NAME, $EMAIL, true)' -r 'createUser($NAME, $EMAIL)' --lang ts
     ```
 
-    ## Rule Files (Complex Patterns)
+    ## Rule Files
+
     ```yaml
     id: no-console-log
     language: typescript
@@ -153,24 +160,22 @@ distilled: |-
       pattern: console.log($$$ARGS)
     fix: "logger.debug($$$ARGS)"
     ```
+
     ```bash
     ast-grep scan --rule rules/no-console-log.yaml
     ```
 
     ## Workflow
-    1. Test pattern (no `--update-all`)
-    2. Review with `--interactive`
+    1. Test pattern (preview matches)
+    2. Review interactively
     3. Apply with `--update-all`
-    4. Run tests
-    5. Commit
+    4. Run tests, commit
 
-    ## Supported Languages
-    TypeScript, JavaScript, Python, Rust, Go, Java, C, C++, etc.
+    ## Install
 
-    ## Installation
     ```bash
-    brew install ast-grep          # macOS
-    cargo install ast-grep --locked # cargo
-    npm install -g @ast-grep/cli    # npm
+    brew install ast-grep
+    cargo install ast-grep --locked
+    npm install -g @ast-grep/cli
     ```
 distilled_by: claude-code

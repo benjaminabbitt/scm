@@ -1,4 +1,4 @@
-version: "1.0"
+version: 1.0
 tags:
     - documentation
     - workflow
@@ -49,35 +49,36 @@ content: |-
     - Write meaningful commit messages for progress tracking
 content_hash: sha256:2481f885e714c651a51c140c41e92dcff11e445283211847581b24343b319e8c
 distilled: |-
-    Here's my compressed version of the documentation guidelines:
-
-    ---
-
-    # Documentation Guidelines
+    # Documentation
 
     ## README
-    - Read before acting
+    - Read first before acting
     - Update when adding commands/features
-    - Keep current
+    - Keep current with project state
 
     ## Ask Before Creating
-    - *.md files, planning/strategy/tracking docs, meta-docs
-    - **Exception:** README updates for new features OK
+    - *.md files (REFACTORING.md, arch docs)
+    - Planning/strategy docs
+    - Project tracking files
+    - Meta-docs
+
+    **Exception:** README updates for new features OK
 
     ## Plan Files
-    - Location: `.plan/` directory
-    - Add `.plan/` to `.gitignore` (don't commit)
-    - Naming: `.plan/feature-name.md`
+    - Place in `.plan/` directory
+    - Add `.plan/` to `.gitignore` (never commit)
+    - Use descriptive names: `.plan/feature-name.md`
 
     ## Don't
-    - Add progress/refactoring comments in code
-    - Include change history/revision annotations in files
-    - Version control handles history via commits
+    - Add progress comments in code ("reorganized...", "refactored X to Y")
+    - Include changelog-style comments
+    - Add "Updated on...", "Changed from...", revision history in files
+    - History belongs in VCS, not data
 
     ## Do
-    - Suggest docs needs first
+    - Suggest doc needs first
     - Summarize in chat
     - Update existing docs
     - Create code/tests/config
-    - Write meaningful commits
+    - Use commit messages for tracking
 distilled_by: claude-code

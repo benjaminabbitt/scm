@@ -1,4 +1,4 @@
-version: "1.0"
+version: 1.0
 tags:
     - code
     - quality
@@ -49,11 +49,10 @@ content: |-
     - Don't leave dead code behind
 content_hash: sha256:e73c48402de3ed257be0268781d234ca91c3ba0ab64271f44af57be0415f9423
 distilled: |-
-    ```yaml
-    # Code Quality Standards
+    # Code Quality
 
     ## Philosophy
-    - **SOLID** - SRP, OCP, LSP, ISP, DIP
+    - **SOLID** - Single resp, Open/closed, Liskov, Interface seg, Dependency inv
     - **KISS** - Simple, straightforward solutions
     - **YAGNI** - Build only when needed
 
@@ -73,18 +72,17 @@ distilled: |-
     ## Markers
     - `TODO` - pending work
     - `FIXME` - known bugs
-    - `NOTE` - explanations/warnings
-    - `HACK` - temp workarounds
+    - `NOTE` - important info
+    - `HACK` - temp solutions
 
     ## Performance
     - Profile before optimizing
     - Document perf requirements in tests
-    - Use appropriate data structures
-    - State complexity for non-trivial algorithms
-    - Consider memory allocation
+    - Appropriate data structures
+    - State complexity for non-trivial algos
+    - Consider memory patterns
 
-    ## Clean Up
+    ## Cleanup
     - Kill unused background processes
-    - Remove dead code, files, imports, vars
-    ```
+    - Remove dead code/files/imports/vars
 distilled_by: claude-code

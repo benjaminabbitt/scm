@@ -366,10 +366,10 @@ Feature: Copy fragments and prompts
     Then the exit code should be 1
     And the output should contain "cannot be the same"
 
-  Scenario: Copy fails when copying to resources without dev flag
-    When I run scm "copy h r"
+  Scenario: Copy fails when copying to embedded without dev flag
+    When I run scm "copy h e"
     Then the exit code should be 1
-    And the output should contain "cannot copy to resources"
+    And the output should contain "cannot copy to embedded"
 
   Scenario: Copy fails with invalid source location
     When I run scm "copy invalid p"
@@ -414,37 +414,37 @@ Feature: Copy fragments and prompts
     And the file ".scm/context-fragments/lang/golang.yaml" should contain "Go language guidelines"
 
   # ============================================================================
-  # Copy from Resources (Embedded Fragments)
+  # Copy from Embedded (Embedded Fragments)
   # ============================================================================
 
-  Scenario: Copy fragment from resources to project
-    When I run scm "copy r p -f general/security"
+  Scenario: Copy fragment from embedded to project
+    When I run scm "copy e p -f general/security"
     Then the exit code should be 0
     And the file ".scm/context-fragments/general/security.yaml" should exist
 
-  Scenario: Copy fragment from resources to home
-    When I run scm "copy r h -f general/code-quality"
+  Scenario: Copy fragment from embedded to home
+    When I run scm "copy e h -f general/code-quality"
     Then the exit code should be 0
     And the home file ".scm/context-fragments/general/code-quality.yaml" should exist
 
-  Scenario: Copy multiple fragments from resources
-    When I run scm "copy r p -f general/security -f general/tdd"
+  Scenario: Copy multiple fragments from embedded
+    When I run scm "copy e p -f general/security -f general/tdd"
     Then the exit code should be 0
     And the file ".scm/context-fragments/general/security.yaml" should exist
     And the file ".scm/context-fragments/general/tdd.yaml" should exist
 
-  Scenario: Copy fragments by tag from resources
-    When I run scm "copy r p -t golang"
+  Scenario: Copy fragments by tag from embedded
+    When I run scm "copy e p -t golang"
     Then the exit code should be 0
     And the file ".scm/context-fragments/lang/golang/golang.yaml" should exist
 
-  Scenario: Use short alias 'r' for resources
-    When I run scm "copy r p -f general/documentation"
+  Scenario: Use short alias 'e' for embedded
+    When I run scm "copy e p -f general/documentation"
     Then the exit code should be 0
     And the file ".scm/context-fragments/general/documentation.yaml" should exist
 
-  Scenario: Copy nonexistent fragment from resources fails gracefully
-    When I run scm "copy r p -f nonexistent/fragment"
+  Scenario: Copy nonexistent fragment from embedded fails gracefully
+    When I run scm "copy e p -f nonexistent/fragment"
     Then the exit code should be 0
     And the output should contain "No fragments to copy"
 

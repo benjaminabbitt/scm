@@ -1,4 +1,4 @@
-version: "1.0"
+version: 1.0
 tags:
     - workflow
     - quality
@@ -39,35 +39,30 @@ content: |-
     - What error conditions exist and what messages should they have?
 content_hash: sha256:dcb677dd3c01df01a6c70d5e0aebb57e6ba29bb06e916fc5b498afc421d3d39e
 distilled: |-
-    ```yaml
     # Pushback Guidelines
 
     ## When to Push Back
-    - Skip tests
-    - Add features w/o tests
-    - Ignore type hints
-    - Work around linting vs fix
+    If asked to: skip tests, add untested features, ignore type hints, work around (vs fix) lint errors
 
     ## Response Pattern
-    1. State problem
+    1. State why problematic
     2. Explain consequences
     3. Suggest correct approach
     4. Defer if insisted, note tech debt
 
     ## Feature Start Questions
     - Acceptance criteria?
-    - Perf requirements?
-    - Error cases?
+    - Performance requirements?
+    - Error cases to handle?
     - Security implications?
-    - Logging needs?
+    - What to log?
     - Dependencies?
-    - Test approach?
-    - Error messages?
+    - Testing approach?
+    - Error messages needed?
 
     ## Component Design Questions
     - Required dependencies?
-    - Dependency interface/protocol?
-    - Log context?
+    - Interface/protocol for dependencies?
+    - Logging context?
     - Error conditions & messages?
-    ```
 distilled_by: claude-code

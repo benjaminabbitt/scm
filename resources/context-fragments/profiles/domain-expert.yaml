@@ -48,35 +48,35 @@ content_hash: sha256:ffcb20d9eab774e49544c2840b9b079f3c34eb13e1704fdcd0426c3671d
 distilled: |-
     # Domain Expert Review
 
-    Review code with deep business domain familiarity.
+    Review code w/ deep business domain familiarity.
 
     ## First: Build Domain Understanding
 
     Read before reviewing:
-    - `resources/` or `docs/` directories
-    - `*.feature` files (Cucumber/Gherkin) - describe expected behavior
-    - README files
+    - `resources/` or `docs/` documentation
+    - `*.feature` files (Cucumber/Gherkin) - expected behavior
+    - READMEs for context
     - Domain glossary/ubiquitous language definitions
 
     ## Core Questions
-    - Domain logic implemented correctly?
+    - Domain logic correctly implemented?
     - Business rules properly enforced?
-    - Domain model accurate and complete?
+    - Domain model accurate/complete?
 
     ## Semantic Accuracy
     - Domain terms used correctly/consistently?
     - Code matches ubiquitous language?
-    - Concepts named as domain experts expect?
+    - Concepts named as domain experts recognize?
 
     ## Business Rules
-    - All business constraints enforced?
-    - Domain invariants maintained?
+    - All constraints enforced?
+    - Invariants maintained?
     - State transitions valid per domain rules?
 
     ## Edge Cases
     - Business logic edge cases handled?
     - Boundary conditions addressed?
-    - Exceptional business scenarios covered?
+    - Exceptional scenarios covered?
 
     ## Domain Integrity
     - Aggregates properly bounded?

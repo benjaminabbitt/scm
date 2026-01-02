@@ -1,4 +1,4 @@
-version: "1.0"
+version: 1.0
 tags:
     - workflow
     - debugging
@@ -36,23 +36,26 @@ content: |-
     - Are there alternative approaches?
 content_hash: sha256:e946577f469e94974ca6a17072bb7e8c899f4ba247bb56b9a1e610cccb024417
 distilled: |-
-    # Problem-solving
+    # Workarounds & Problem Solving
 
-    **Principle:** Find root cause first. Fix at source.
+    **Core:** Find root cause before solving. Fix at source.
 
-    ## On Failing Functionality
+    ## When Functionality Fails
 
-    1. **Find root cause** - No workarounds without asking
-    2. **Simple problem, complex fix?** - Stop, ask first
-    3. **Prompt options:** Fix properly (estimate), workaround (trade-offs), disable test (reason), alternatives
-    4. **Cost/benefit:** Pros/cons, tech debt, maintainability, time
-    5. **Document:** Record reasoning for chosen path
+    1. **Root cause first** - No workarounds without asking
+    2. **Simple problem needing complex fix?** - Stop, ask questions
+    3. **Prompt with options:**
+       - Fix properly (effort estimate)
+       - Workaround (document trade-offs)
+       - Disable test temporarily (document why)
+       - Alternatives
+    4. **Cost/benefit:** pros/cons, tech debt, maintainability, time
+    5. **Document** reasoning for chosen path
 
-    ## Key Questions
-
+    ## Questions to Ask
     - Fix properly vs workaround?
-    - Pros/cons?
+    - Pros/cons of each?
     - Tech debt impact?
     - Disable test temporarily?
-    - Alternatives?
+    - Alternative approaches?
 distilled_by: claude-code

@@ -1,4 +1,4 @@
-version: "1.0"
+version: 1.0
 tags:
     - python
     - language
@@ -128,55 +128,86 @@ content: |-
     - Use `TypedDict` if you must use dict syntax with known keys (e.g., JSON serialization)
 content_hash: sha256:827b1a4278649f4c26558c440677e5077b1502e1bda89d21c142fd6e478598e0
 distilled: |-
-    # Python Development
+    # Python Dev
 
-    ## Environment
+    ## Env/Tools
     - Python 3 (version in pyproject.toml)
-    - UV (package manager)
-    - pytest, pytest-bdd/behave (Gherkin)
+    - UV (pkg mgr)
+    - pytest
+    - Gherkin (pytest-bdd/behave) for acceptance
     - ruff (lint/format)
     - structlog
 
-    ## Structure
+    ## Test Structure
+    - Unit: `test_*.py` (co-located)
+    - Integration: `tests/integration/test_*.py`
+    - Acceptance: `tests/acceptance/features/*.feature`
+
+    ## Layout
     ```
     project/
     ├── src/package_name/
     │   ├── log_messages.py, error_messages.py
-    │   ├── module.py, test_module.py  # co-located
-    ├── tests/integration/, tests/acceptance/features/
+    │   ├── module.py, test_module.py
+    ├── tests/{integration,acceptance}/
     ├── .devcontainer/, justfile, pyproject.toml
     ```
 
-    Exclude tests from dist:
+    ## Exclude Co-located Tests
     ```toml
     [tool.setuptools.packages.find]
     where = ["src"]
     exclude = ["**/test_*"]
     ```
 
-    ## Patterns
-
-    **Logging/Errors**: Use frozen dataclass constants
+    ## structlog
     ```python
-    LOG_MSG = LogMessages()  # logger.info(LOG_MSG.USER_CREATED, ...)
-    ERROR_MSG = ErrorMessages()  # raise ValueError(ERROR_MSG.DIVIDE_BY_ZERO)
+    @dataclass(frozen=True)
+    class LogMessages:
+        USER_CREATED = "user_created"
+    LOG_MSG = LogMessages()
+    logger.info(LOG_MSG.USER_CREATED, username=username)
     ```
 
-    **IoC**: Constructor injection + factory classmethod (`# pragma: no cover`)
+    ## Error Constants
+    ```python
+    @dataclass(frozen=True)
+    class ErrorMessages:
+        DIVIDE_BY_ZERO = "Cannot divide by zero"
+    ERROR_MSG = ErrorMessages()
+    raise ValueError(ERROR_MSG.DIVIDE_BY_ZERO)
+    ```
 
-    ## Type Safety Rules
+    ## IoC
+    ```python
+    class UserService:
+        def __init__(self, repo: UserRepository, logger: structlog.BoundLogger):
+            self._repo, self._logger = repo, logger
 
+        @classmethod
+        def create(cls, db: DatabaseConnection) -> "UserService":  # pragma: no cover
+            return cls(SQLUserRepository(db), structlog.get_logger())
+    ```
+
+    ## Typing & Attribute Access
     - Use type hints consistently
-    - **NO string-based attribute access** for static values:
-      - `getattr(obj, "method")` → `obj.method`
-      - `globals()["func"]`, `operator.attrgetter("field")` → direct access
-      - Exception: runtime-dynamic strings (config, user input)
+    - **Avoid hardcoded string-based access**: no `getattr(obj, "method")`, `globals()["name"]`, `operator.attrgetter("field")`
+    - Defeats static analysis/IDE/refactoring
+    - **Exception**: Dynamic strings from runtime data OK; prefer explicit mappings/match-case
 
-    - **NO dicts with known keys** → use dataclass/NamedTuple
+    ## Dicts vs Structured Types
+    - **Don't use dicts with known keys** — use dataclass/NamedTuple
+
     ```python
-    # Bad: {"score": 0, "level": 1}
-    # Good: @dataclass GameState with typed fields
+    # BAD
+    game_state = {"score": 0, "level": 1}
+    # GOOD
+    @dataclass
+    class GameState:
+        score: int = 0
+        level: int = 1
     ```
-    - Dicts OK for: dynamic keys, lookups, runtime-unknown structure
-    - Use TypedDict for JSON serialization with known keys
+
+    - Dicts OK for: truly dynamic keys, lookup tables, unknown-until-runtime keys
+    - Use `TypedDict` if dict syntax required (JSON serialization)
 distilled_by: claude-code

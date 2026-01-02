@@ -244,8 +244,8 @@ func completePromptNames(cmd *cobra.Command, args []string, toComplete string) (
 // completeCopyLocations returns a completion function for copy source/destination.
 func completeCopyLocations(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	locations := []string{
-		"resources\tEmbedded default fragments and prompts",
-		"r\tAlias for resources",
+		"embedded\tEmbedded default fragments and prompts",
+		"e\tAlias for embedded",
 		"home\t~/.scm directory",
 		"h\tAlias for home",
 		"project\t.scm in current project",

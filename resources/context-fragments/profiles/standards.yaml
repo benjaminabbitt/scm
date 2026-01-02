@@ -71,9 +71,9 @@ distilled: |-
 
     ## Naming
     - Intent-revealing names
-    - No abbreviations (unless universal)
-    - Functions describe *what*, not *how*
-    - Booleans as questions (isValid, hasItems)
+    - Avoid abbreviations (unless universal)
+    - Function names describe *what*, not *how*
+    - Booleans as questions: isValid, hasItems
 
     ## Organization
     - Follow language/framework standards
@@ -91,19 +91,19 @@ distilled: |-
     - Public APIs: purpose, params, returns
     - Explain non-obvious algorithms
     - "Why" comments where needed
-    - Keep docs synced
+    - Keep docs synced with code
 
     ## Patterns
-    - Use standard design patterns
+    - Use standard design patterns appropriately
     - Prefer stdlib over reinventing
     - Follow language idioms
     - Avoid anti-patterns
 
-    ## Error Handling
-    - Handle explicitly, never swallow
+    ## Errors
+    - Handle explicitly, never swallow silently
     - Descriptive, actionable messages
     - Clear happy path vs error paths
-    - No exceptions for control flow
+    - Don't use exceptions for control flow
 
     ## Readability
     - Newcomer-understandable

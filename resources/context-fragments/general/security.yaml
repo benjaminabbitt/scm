@@ -1,4 +1,4 @@
-version: "1.0"
+version: 1.0
 tags:
     - security
     - code
@@ -27,26 +27,24 @@ content: |-
     - Dependencies scanned for vulnerabilities?
 content_hash: sha256:71779ee63adf131e4c0424e0be090bd669f332119f9b84fec18f96dbc62a56c9
 distilled: |-
-    ```yaml
     # Security
 
     ## Core Principles
     - No secrets in commits (use env vars)
     - Validate external input
     - Parameterized DB queries
-    - Keep deps updated
+    - Update dependencies
     - Least privilege
 
     ## Review Checklist
-    - Input validation?
-    - Path traversal?
-    - Injection (SQL/cmd/XSS)?
-    - TOCTOU?
-    - Privilege escalation?
-    - Auth/authz correct?
-    - Secrets managed?
-    - Crypto correct?
-    - Data exposure?
-    - Deps scanned?
-    ```
+    - Input validation
+    - Path traversal
+    - Injection (SQL/cmd/XSS)
+    - TOCTOU issues
+    - Privilege escalation
+    - Auth/authz correct
+    - Secrets managed
+    - Crypto correct
+    - Data exposure
+    - Dependency vulns
 distilled_by: claude-code
