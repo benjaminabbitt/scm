@@ -137,3 +137,86 @@ content: |-
     - Use `uv run` instead of activating venv for one-off commands
     - Specify Python version in `requires-python` in pyproject.toml
     - Use `uv sync` in CI/CD for consistent environments
+content_hash: sha256:8a7dc2d1e272e3df1ed7eeb7e00a7990ced1194100d331e2779796a0515a4523
+distilled: |-
+    # UV Package Manager
+
+    Fast Python package/project manager in Rust. Use as default for all Python projects.
+
+    ## Install
+
+    ```bash
+    pipx install uv          # recommended
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    ```
+
+    ## Project Mgmt
+
+    ```bash
+    uv init my-project && cd my-project
+    uv add requests pytest
+    uv add --dev pytest-cov ruff
+    uv remove requests
+    uv sync
+    ```
+
+    ## Venv
+
+    ```bash
+    uv venv                          # auto with uv sync
+    source .venv/bin/activate        # Unix
+    .venv\Scripts\activate           # Windows
+    uv run python script.py          # run without activating
+    ```
+
+    ## Lockfile
+
+    - `uv.lock`: auto-generated, commit it, cross-platform, exact versions
+
+    ## pyproject.toml
+
+    ```toml
+    [project]
+    name = "my-project"
+    version = "0.1.0"
+    requires-python = ">=3.11"
+    dependencies = ["requests>=2.31"]
+
+    [tool.uv]
+    dev-dependencies = ["pytest>=8.0", "ruff>=0.4"]
+    ```
+
+    ## Common Commands
+
+    ```bash
+    uv sync                              # install from lockfile
+    uv lock --upgrade                    # update all deps
+    uv lock --upgrade-package requests   # update one
+    uv tree                              # dep tree
+    uv run --with requests script.py     # run w/ deps
+    uv build                             # build package
+    uv publish                           # publish to PyPI
+    ```
+
+    ## Python Versions
+
+    ```bash
+    uv python install 3.12
+    uv python list
+    uv python pin 3.12
+    ```
+
+    ## Migration from pip
+
+    ```bash
+    uv add -r requirements.txt
+    uv export > requirements.txt
+    ```
+
+    ## Best Practices
+
+    - Commit `uv.lock`
+    - Prefer `uv run` over activating venv
+    - Set `requires-python` in pyproject.toml
+    - Use `uv sync` in CI/CD
+distilled_by: claude-code

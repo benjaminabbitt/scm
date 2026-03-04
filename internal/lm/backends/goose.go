@@ -41,13 +41,19 @@ func (b *Goose) Run(ctx context.Context, req *pb.RunRequest, stdout, stderr io.W
 		opts = &pb.RunOptions{}
 	}
 
-	// Write context files (.scm/context.md and update GOOSE.md)
+	// Determine work directory
 	workDir := opts.WorkDir
 	if workDir == "" {
 		workDir = "."
 	}
-	if err := WriteContextFiles(b.Name(), workDir, req.Fragments); err != nil {
-		fmt.Fprintf(stderr, "warning: failed to write context files: %v\n", err)
+
+	// Write session-scoped context file (for tracking, no hook injection for goose)
+	session, err := WriteSessionContext(workDir, req.Fragments)
+	if err != nil {
+		fmt.Fprintf(stderr, "warning: failed to write session context: %v\n", err)
+	}
+	if session != nil && session.ID != "" {
+		defer CleanupSessionContext(workDir, session.ID)
 	}
 
 	args := b.buildArgs(req)

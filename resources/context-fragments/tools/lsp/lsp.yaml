@@ -1,0 +1,97 @@
+version: 1.0
+tags:
+    - tooling
+    - lsp
+    - claude-code
+    - code-navigation
+content: |-
+    # LSP for AI Coding Agents
+
+    Language Server Protocol provides semantic code navigation. When enabled, reduces code lookup from 30-60s grep searches to ~50ms with 100% accuracy.
+
+    ## Why LSP Matters
+
+    Without LSP, agents rely on text-based grep searches—slow and often inaccurate. LSP provides:
+
+    **Passive features:**
+    - Automatic error detection after edits
+    - Self-correcting for type errors, missing imports, undefined variables
+
+    **Active features:**
+    - `goToDefinition` — find where symbols originate
+    - `findReferences` — locate all usages across project
+    - `hover` — retrieve type signatures and documentation
+    - `documentSymbol` — list functions within files
+    - `workspaceSymbol` — search symbols project-wide
+    - `goToImplementation` — find concrete implementations
+    - `incomingCalls`/`outgoingCalls` — trace call hierarchies
+
+    ## Claude Code Setup
+
+    ### 1. Enable Feature Flag
+
+    Add to `~/.claude/settings.json`:
+
+    ```json
+    {
+      "env": { "ENABLE_LSP_TOOL": "1" }
+    }
+    ```
+
+    ### 2. Install Language Servers
+
+    | Language | Install Command |
+    |----------|-----------------|
+    | Python | `npm i -g pyright` |
+    | TypeScript/JS | `npm i -g typescript-language-server typescript` |
+    | Go | `go install golang.org/x/tools/gopls@latest` |
+    | Rust | `rustup component add rust-analyzer` |
+    | Java | Download jdtls from eclipse.org/jdtls |
+    | C# | `dotnet tool install --global csharp-ls` |
+    | C/C++ | Install clangd (via llvm) |
+
+    ### 3. Install and Enable Plugins
+
+    ```bash
+    claude plugin marketplace update claude-plugins-official
+    claude plugin install pyright-lsp
+    claude plugin list  # verify enabled
+    ```
+
+    A plugin can be installed but disabled—disabled plugins don't register LSP at startup.
+
+    ### 4. Restart Claude Code
+
+    ## Agent Behavior Guidance
+
+    Prefer LSP over Grep/Glob/Read for code navigation:
+
+    - Use `goToDefinition` / `goToImplementation` to find symbol sources
+    - Use `findReferences` for all usages across codebase
+    - Use `workspaceSymbol` to locate definitions by name
+    - Use `hover` for type information and documentation
+    - Fall back to text search only when LSP unavailable
+
+    ## Troubleshooting
+
+    **Plugins installed but disabled:**
+    - Most common issue—check `claude plugin list`
+    - Enabled plugins show status
+
+    **Missing binaries:**
+    - Verify with `which pyright`, `which gopls`, etc.
+    - Ensure PATH includes language server locations
+
+    **Slow Java startup:**
+    - JVM warmup takes ~8 seconds—normal for jdtls
+    - Subsequent operations fast after indexing
+
+    **Debug logs:**
+    - Check `~/.claude/debug/latest` for server load counts
+    - Should show language servers initializing at startup
+
+    ## Container Images
+
+    When using containerized agents, include language servers in the image. See language-specific container overlays for pre-configured images with LSP support.
+content_hash: sha256:a73d150aaf4bdc8a1c8c145e89d029f0124e639d05dccbba4c2971f5a0db7a84
+distilled_by: claude-code

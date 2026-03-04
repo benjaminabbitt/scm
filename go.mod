@@ -7,6 +7,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/cucumber/godog v0.15.1
 	github.com/go-git/go-git/v5 v5.16.4
+	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-plugin v1.7.0
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
@@ -21,7 +22,7 @@ require (
 )
 
 require (
-	dario.cat/mergo v1.0.0 // indirect
+	dario.cat/mergo v1.0.2 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
 	github.com/cloudflare/circl v1.6.1 // indirect

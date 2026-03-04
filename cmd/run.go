@@ -284,8 +284,8 @@ Examples:
 				fmt.Println("(interactive mode)")
 			}
 			// Show context file that would be written
-			fmt.Println("\n=== Context File ===")
-			contextFilePath := filepath.Join(workDir, backends.SCMContextFile)
+			fmt.Println("\n=== Session Context ===")
+			contextFilePath := filepath.Join(workDir, backends.SCMSessionsDir, "<session-id>.md")
 			fmt.Printf("Would write to: %s\n", contextFilePath)
 			if len(protoFragments) > 0 {
 				var parts []string

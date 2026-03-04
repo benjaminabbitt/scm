@@ -72,52 +72,52 @@ content: |-
     - **No revision history in code** - don't document what was modified, when, or by whom
     - **No commented-out code** - delete it; git has it if needed
     - Comments explain *why*, not *what* or *what changed*
-content_hash: sha256:16b56b2b998908ce5ff6ff22d508eb231a7ce822c8d1dcc8230fad7ccbe1b3d1
+content_hash: sha256:4031fe147d0ac198a59bfda8a863a0169258f4cbd838f0215ca344b3c4520d6d
 distilled: |-
     # Code Quality
 
     ## Before Writing
     - Research codebase first; reuse existing code
-    - Extend/refactor, don't duplicate
+    - Extend existing functionality, don't duplicate
 
-    ## Code Size
-    - <500 LOC/file; exceed only w/ high coupling+cohesion
+    ## Size
+    - Files <500 LOC; exceed only w/ high coupling+cohesion
     - Small, single-purpose functions
     - Optimize for readability
     - Separate interfaces from implementations
 
     ## Naming
-    - Interfaces = the thing (UserService is Protocol, no IWhatever)
-    - Implementations = DefaultX or descriptive (HttpUserService, CachedUserService)
+    - Interfaces = the thing (UserService)
+    - Implementations = how (DefaultUserService, HttpUserService)
 
     ## Philosophy
-    - SOLID, KISS, YAGNI
+    SOLID, KISS, YAGNI
 
     ## Principles
-    - Follow language style guides
-    - Use type hints
+    - Language style guides + type hints
     - Self-documenting code > comments
     - Document public APIs
-    - Composition over inheritance
+    - Composition > inheritance
 
     ## Coupling/Cohesion
-    - Low coupling, high cohesion
-    - Single well-defined purpose per module/class
+    - Low coupling between modules
+    - High cohesion within modules
+    - Single purpose per module/class
 
     ## Markers
-    - TODO, FIXME, NOTE, HACK
+    TODO, FIXME, NOTE, HACK
 
     ## Performance
-    - Profile first; document perf requirements
-    - Appropriate data structures; state complexity for non-trivial algos
-    - Consider memory allocation
+    - Profile first; document requirements
+    - Appropriate data structures
+    - State complexity for non-trivial algorithms
 
-    ## Clean Up
-    - Kill unneeded background processes
-    - Remove unused code/files/imports/variables
+    ## Cleanup
+    - Kill unused processes
+    - Remove dead code/imports/variables
 
     ## Comments
-    - Never add change-tracking comments (git handles history)
+    - No change-tracking (git handles history)
     - No commented-out code
-    - Comments explain *why* only
+    - Explain *why*, not *what*
 distilled_by: claude-code

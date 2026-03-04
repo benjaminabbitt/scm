@@ -33,32 +33,33 @@ content: |-
     - Cryptography used correctly?
     - Sensitive data exposure?
     - Dependencies scanned for vulnerabilities?
-content_hash: sha256:71779ee63adf131e4c0424e0be090bd669f332119f9b84fec18f96dbc62a56c9
+content_hash: sha256:d7f27ca2fa6365323e677b27b9ac7701a20b196a317103d965cb82646426ea6e
 distilled: |-
     # Security
 
-    ## Core Principles
-    - **NEVER hardcode secrets** — no passwords/keys/tokens in code, config, or tests. Use env vars or secret managers.
-    - Validate external input
+    ## Core
+    - **NEVER hardcode secrets** — use env vars, secret managers (Vault, AWS/GCP/Azure), or encrypted config
+    - Validate all external input
     - Parameterized DB queries
-    - Update dependencies
+    - Keep deps updated
     - Least privilege
 
     ## Secrets
-    - Env vars for runtime; `.env` for local (never commit)
-    - Secret managers for prod (Vault, AWS/GCP/Azure)
-    - Tests: use fakes (`test-password`, `FAKE_API_KEY`)
-    - Found hardcoded secret? Remove + rotate immediately
+    - Env vars for runtime
+    - `.env` for local (in `.gitignore`, never commit)
+    - Secret managers for prod
+    - Tests: fake values (`test-password`, `FAKE_API_KEY`) or CI secrets
+    - Found hardcoded secret → remove + rotate immediately
 
     ## Review Checklist
-    - Input validation
-    - Path traversal
-    - Injection (SQL/cmd/XSS)
-    - TOCTOU issues
-    - Privilege escalation
-    - Auth/authz correct
-    - Secrets managed
-    - Crypto correct
-    - Data exposure
-    - Dependency vulns
+    - Input validation?
+    - Path traversal?
+    - Injection (SQL, command, XSS)?
+    - TOCTOU?
+    - Privilege escalation?
+    - Auth/authz correct?
+    - Secrets managed?
+    - Crypto correct?
+    - Data exposure?
+    - Deps scanned?
 distilled_by: claude-code

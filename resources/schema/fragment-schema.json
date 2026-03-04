@@ -61,6 +61,55 @@
       "additionalProperties": {
         "type": "string"
       }
+    },
+    "plugins": {
+      "type": "object",
+      "description": "Plugin-specific settings for this fragment/prompt.",
+      "properties": {
+        "lm": {
+          "type": "object",
+          "description": "Language model plugin settings.",
+          "properties": {
+            "claude-code": {
+              "type": "object",
+              "description": "Claude Code slash command export settings. Prompts are exported by default (opt-out model).",
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Set to false to disable slash command export. Default is true (exported).",
+                  "default": true
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Description shown in /help for this command.",
+                  "examples": ["Review code for security issues", "Generate unit tests"]
+                },
+                "argument_hint": {
+                  "type": "string",
+                  "description": "Hint for expected arguments, shown in autocomplete.",
+                  "examples": ["[file] [focus]", "[issue-number]"]
+                },
+                "allowed_tools": {
+                  "type": "array",
+                  "description": "Tool restrictions for this command. If not specified, all tools are allowed.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "examples": [["Read", "Grep"], ["Bash(git diff:*)", "Read"]]
+                },
+                "model": {
+                  "type": "string",
+                  "description": "Override model for this command.",
+                  "examples": ["claude-sonnet-4-20250514", "claude-opus-4-20250514"]
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

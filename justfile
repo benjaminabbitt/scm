@@ -199,3 +199,152 @@ tf-fmt:
 # Validate Terraform configuration
 tf-validate:
     cd terraform && terraform validate
+
+# ===== Container targets =====
+
+# Container registry (override with: just registry=ghcr.io/user container-build-all)
+registry := "localhost"
+
+# Container variant: wolfi (glibc, secure) or alpine (musl, smaller)
+variant := "wolfi"
+
+# Build base agent container
+container-build-base:
+    podman build -t {{registry}}/scm-agent-base:latest \
+        -f container/{{variant}}/Containerfile-base container/{{variant}}/
+
+# Build Claude Code agent container
+container-build-claude: container-build-base
+    podman build -t {{registry}}/scm-agent-claude:latest \
+        --build-arg BASE_IMAGE={{registry}}/scm-agent-base:latest \
+        -f container/{{variant}}/Containerfile-claude-code container/{{variant}}/
+
+# Build Gemini CLI agent container
+container-build-gemini: container-build-base
+    podman build -t {{registry}}/scm-agent-gemini:latest \
+        --build-arg BASE_IMAGE={{registry}}/scm-agent-base:latest \
+        -f container/{{variant}}/Containerfile-gemini container/{{variant}}/
+
+# Build Codex agent container
+container-build-codex: container-build-base
+    podman build -t {{registry}}/scm-agent-codex:latest \
+        --build-arg BASE_IMAGE={{registry}}/scm-agent-base:latest \
+        -f container/{{variant}}/Containerfile-codex container/{{variant}}/
+
+# Build Cline agent container
+container-build-cline: container-build-base
+    podman build -t {{registry}}/scm-agent-cline:latest \
+        --build-arg BASE_IMAGE={{registry}}/scm-agent-base:latest \
+        -f container/{{variant}}/Containerfile-cline container/{{variant}}/
+
+# Build Aider agent container (standalone - Python)
+container-build-aider:
+    podman build -t {{registry}}/scm-agent-aider:latest \
+        -f container/{{variant}}/Containerfile-aider container/{{variant}}/
+
+# Build Goose agent container (standalone - Block)
+container-build-goose:
+    podman build -t {{registry}}/scm-agent-goose:latest \
+        -f container/{{variant}}/Containerfile-goose container/{{variant}}/
+
+# Build Q Developer agent container (standalone - Amazon)
+container-build-qdeveloper:
+    podman build -t {{registry}}/scm-agent-qdeveloper:latest \
+        -f container/{{variant}}/Containerfile-qdeveloper container/{{variant}}/
+
+# Build all agent containers
+container-build-agents: container-build-claude container-build-gemini container-build-codex container-build-cline container-build-aider container-build-goose container-build-qdeveloper
+
+# ===== Language LSP containers =====
+
+# Build Go LSP container (gopls + tools)
+container-build-lang-go: container-build-base
+    podman build -t {{registry}}/scm-lsp-go:latest \
+        --build-arg BASE_IMAGE={{registry}}/scm-agent-base:latest \
+        -f container/{{variant}}/lang/Containerfile-go container/{{variant}}/
+
+# Build Python LSP container (pyright + tools)
+container-build-lang-python: container-build-base
+    podman build -t {{registry}}/scm-lsp-python:latest \
+        --build-arg BASE_IMAGE={{registry}}/scm-agent-base:latest \
+        -f container/{{variant}}/lang/Containerfile-python container/{{variant}}/
+
+# Build Rust LSP container (rust-analyzer + tools)
+container-build-lang-rust: container-build-base
+    podman build -t {{registry}}/scm-lsp-rust:latest \
+        --build-arg BASE_IMAGE={{registry}}/scm-agent-base:latest \
+        -f container/{{variant}}/lang/Containerfile-rust container/{{variant}}/
+
+# Build TypeScript LSP container (typescript-language-server)
+container-build-lang-typescript: container-build-base
+    podman build -t {{registry}}/scm-lsp-typescript:latest \
+        --build-arg BASE_IMAGE={{registry}}/scm-agent-base:latest \
+        -f container/{{variant}}/lang/Containerfile-typescript container/{{variant}}/
+
+# Build Java LSP container (jdtls + tools)
+container-build-lang-java: container-build-base
+    podman build -t {{registry}}/scm-lsp-java:latest \
+        --build-arg BASE_IMAGE={{registry}}/scm-agent-base:latest \
+        -f container/{{variant}}/lang/Containerfile-java container/{{variant}}/
+
+# Build C# LSP container (omnisharp)
+container-build-lang-csharp: container-build-base
+    podman build -t {{registry}}/scm-lsp-csharp:latest \
+        --build-arg BASE_IMAGE={{registry}}/scm-agent-base:latest \
+        -f container/{{variant}}/lang/Containerfile-csharp container/{{variant}}/
+
+# Build all language LSP containers
+container-build-langs: container-build-lang-go container-build-lang-python container-build-lang-rust container-build-lang-typescript container-build-lang-java container-build-lang-csharp
+
+# Build all containers (base + langs + agents)
+container-build-all: container-build-langs container-build-agents
+
+# Push all agent containers to registry
+container-push-agents:
+    podman push {{registry}}/scm-agent-base:latest
+    podman push {{registry}}/scm-agent-claude:latest
+    podman push {{registry}}/scm-agent-gemini:latest
+    podman push {{registry}}/scm-agent-codex:latest
+    podman push {{registry}}/scm-agent-cline:latest
+    podman push {{registry}}/scm-agent-aider:latest
+    podman push {{registry}}/scm-agent-goose:latest
+    podman push {{registry}}/scm-agent-qdeveloper:latest
+
+# Push all language LSP containers to registry
+container-push-langs:
+    podman push {{registry}}/scm-lsp-go:latest
+    podman push {{registry}}/scm-lsp-python:latest
+    podman push {{registry}}/scm-lsp-rust:latest
+    podman push {{registry}}/scm-lsp-typescript:latest
+    podman push {{registry}}/scm-lsp-java:latest
+    podman push {{registry}}/scm-lsp-csharp:latest
+
+# Push all containers to registry
+container-push-all: container-push-langs container-push-agents
+
+# Clean agent container images
+container-clean-agents:
+    -podman rmi {{registry}}/scm-agent-claude:latest
+    -podman rmi {{registry}}/scm-agent-gemini:latest
+    -podman rmi {{registry}}/scm-agent-codex:latest
+    -podman rmi {{registry}}/scm-agent-cline:latest
+    -podman rmi {{registry}}/scm-agent-aider:latest
+    -podman rmi {{registry}}/scm-agent-goose:latest
+    -podman rmi {{registry}}/scm-agent-qdeveloper:latest
+
+# Clean language LSP container images
+container-clean-langs:
+    -podman rmi {{registry}}/scm-lsp-go:latest
+    -podman rmi {{registry}}/scm-lsp-python:latest
+    -podman rmi {{registry}}/scm-lsp-rust:latest
+    -podman rmi {{registry}}/scm-lsp-typescript:latest
+    -podman rmi {{registry}}/scm-lsp-java:latest
+    -podman rmi {{registry}}/scm-lsp-csharp:latest
+
+# Clean all container images
+container-clean: container-clean-agents container-clean-langs
+    -podman rmi {{registry}}/scm-agent-base:latest
+
+# List all scm container images
+container-list:
+    @podman images | grep -E "scm-(agent|lsp)" | sort
