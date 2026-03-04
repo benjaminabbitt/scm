@@ -1,12 +1,29 @@
 package backends
 
 import (
+	"github.com/benjaminabbitt/scm/internal/config"
 	pb "github.com/benjaminabbitt/scm/internal/lm/grpc"
 )
 
 // Backend is the interface that all AI backend implementations must satisfy.
 // This matches the grpc.Backend interface.
 type Backend = pb.Backend
+
+// Configurable is an interface for backends that can be configured with plugin settings.
+type Configurable interface {
+	Configure(cfg *config.PluginConfig)
+}
+
+// ApplyPluginConfig applies plugin configuration to a backend.
+// This sets binary path, args, and env.
+func ApplyPluginConfig(backend Backend, cfg *config.PluginConfig) {
+	if cfg == nil {
+		return
+	}
+	if configurable, ok := backend.(Configurable); ok {
+		configurable.Configure(cfg)
+	}
+}
 
 // registry holds all registered backends.
 var registry = make(map[string]func() Backend)

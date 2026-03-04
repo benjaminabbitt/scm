@@ -41,17 +41,27 @@ var pluginListCmd = &cobra.Command{
 		// Find external plugins
 		externalPlugins := findExternalPlugins(cfg.GetPluginPaths())
 
+		defaultPlugin := cfg.LM.GetDefaultPlugin()
+
 		// Print built-in plugins
 		fmt.Println("Built-in plugins:")
 		for _, name := range builtinNames {
-			fmt.Printf("  %s\n", name)
+			if name == defaultPlugin {
+				fmt.Printf("  %s (default)\n", name)
+			} else {
+				fmt.Printf("  %s\n", name)
+			}
 		}
 
 		// Print external plugins if any
 		if len(externalPlugins) > 0 {
 			fmt.Println("\nExternal plugins:")
 			for _, p := range externalPlugins {
-				fmt.Printf("  %s (%s)\n", p.name, p.path)
+				if p.name == defaultPlugin {
+					fmt.Printf("  %s (%s) (default)\n", p.name, p.path)
+				} else {
+					fmt.Printf("  %s (%s)\n", p.name, p.path)
+				}
 			}
 		}
 

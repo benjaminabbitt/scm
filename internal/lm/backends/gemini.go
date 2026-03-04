@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/benjaminabbitt/scm/internal/config"
 	pb "github.com/benjaminabbitt/scm/internal/lm/grpc"
 	"github.com/benjaminabbitt/scm/internal/ptyrunner"
 )
@@ -37,13 +38,33 @@ func (b *Gemini) Run(ctx context.Context, req *pb.RunRequest, stdout, stderr io.
 		opts = &pb.RunOptions{}
 	}
 
-	// Write context files (.scm/context.md and update GEMINI.md)
+	// Determine work directory
 	workDir := opts.WorkDir
 	if workDir == "" {
 		workDir = "."
 	}
-	if err := WriteContextFiles(b.Name(), workDir, req.Fragments); err != nil {
-		fmt.Fprintf(stderr, "warning: failed to write context files: %v\n", err)
+
+	// Write session-scoped context file
+	session, err := WriteSessionContext(workDir, req.Fragments)
+	if err != nil {
+		fmt.Fprintf(stderr, "warning: failed to write session context: %v\n", err)
+	}
+	// Ensure cleanup on exit
+	if session != nil && session.ID != "" {
+		defer CleanupSessionContext(workDir, session.ID)
+	}
+
+	// Write hooks to .gemini/settings.json (includes auto-registered SessionStart hook)
+	if err := b.writeHooks(workDir, stderr); err != nil {
+		fmt.Fprintf(stderr, "warning: failed to write hooks: %v\n", err)
+	}
+
+	// Add session ID to environment for hook injection
+	if session != nil && session.ID != "" {
+		if opts.Env == nil {
+			opts.Env = make(map[string]string)
+		}
+		opts.Env[SCMContextIDEnv] = session.ID
 	}
 
 	args := b.buildArgs(req)
@@ -166,4 +187,45 @@ func (b *Gemini) buildArgs(req *pb.RunRequest) []string {
 	}
 
 	return args
+}
+
+// writeHooks loads hooks from config and writes them to .gemini/settings.json.
+func (b *Gemini) writeHooks(workDir string, stderr io.Writer) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Collect hooks from resolved profiles and top-level config
+	hooks := b.collectHooks(cfg)
+	if hooks == nil {
+		return nil // No hooks configured
+	}
+
+	return WriteHooks(b.Name(), hooks, workDir)
+}
+
+// collectHooks collects hooks from config, merging profile hooks with top-level hooks.
+// Always includes the auto-registered SessionStart hook for context injection.
+func (b *Gemini) collectHooks(cfg *config.Config) *config.HooksConfig {
+	result := &config.HooksConfig{
+		Plugins: make(map[string]config.BackendHooks),
+	}
+
+	// Auto-register SessionStart hook for context injection
+	result.Unified.SessionStart = append(result.Unified.SessionStart, NewContextInjectionHook())
+
+	// Start with top-level hooks
+	mergeHooksConfig(result, &cfg.Hooks)
+
+	// Add hooks from default profiles
+	for _, profileName := range cfg.GetDefaultProfiles() {
+		resolved, err := config.ResolveProfile(cfg.Profiles, profileName)
+		if err != nil {
+			continue
+		}
+		mergeHooksConfig(result, &resolved.Hooks)
+	}
+
+	return result
 }

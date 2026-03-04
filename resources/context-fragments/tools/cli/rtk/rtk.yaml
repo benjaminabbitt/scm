@@ -134,3 +134,46 @@ content: |-
     | Network | curl, wget | 65-70% |
 
     Overall average: **60-90% token reduction** on common development operations.
+content_hash: sha256:5dbac526b4a550e224400cc3c48f43cac89484ce5b54ff33b58d3e55b6fe623f
+distilled: |-
+    # RTK (Rust Token Killer)
+
+    **Always prefix commands with `rtk`** - passes through safely if no filter exists.
+
+    **Chain commands correctly:**
+    ```bash
+    rtk git add . && rtk git commit -m "msg" && rtk git push
+    ```
+
+    ## Commands
+
+    ### Build (80-90%)
+    `rtk cargo build|check|clippy` `rtk tsc` `rtk lint` `rtk prettier --check` `rtk next build`
+
+    ### Test (90-99%)
+    `rtk cargo test` `rtk vitest run` `rtk playwright test` `rtk test <cmd>`
+
+    ### Git (59-80%)
+    `rtk git status|log|diff|show|add|commit|push|pull|branch|fetch|stash|worktree` - all subcommands supported
+
+    ### GitHub (26-87%)
+    `rtk gh pr view|checks` `rtk gh run list` `rtk gh issue list` `rtk gh api`
+
+    ### JS/TS (70-90%)
+    `rtk pnpm list|outdated|install` `rtk npm run` `rtk npx` `rtk prisma`
+
+    ### Files (60-75%)
+    `rtk ls` `rtk read` `rtk grep` `rtk find`
+
+    ### Analysis (70-90%)
+    `rtk err <cmd>` `rtk log` `rtk json` `rtk deps` `rtk env` `rtk summary` `rtk diff`
+
+    ### Infra (85%)
+    `rtk docker ps|images|logs` `rtk kubectl get|logs`
+
+    ### Network (65-70%)
+    `rtk curl` `rtk wget`
+
+    ### Meta
+    `rtk gain [--history]` `rtk discover` `rtk proxy <cmd>`
+distilled_by: claude-code

@@ -128,6 +128,10 @@
         "additionalProperties": false
       }
     },
+    "hooks": {
+      "$ref": "#/$defs/hooksConfig",
+      "description": "Hooks configuration applied globally"
+    },
     "profiles": {
       "type": "object",
       "description": "Named collections of context fragments, variables, and generators",
@@ -182,10 +186,113 @@
               "type": "string",
               "minLength": 1
             }
+          },
+          "hooks": {
+            "$ref": "#/$defs/hooksConfig",
+            "description": "Hooks configuration for this profile (inherited from parents)"
           }
         },
         "additionalProperties": false
       }
+    }
+  },
+  "$defs": {
+    "hook": {
+      "type": "object",
+      "description": "A hook definition",
+      "properties": {
+        "matcher": {
+          "type": "string",
+          "description": "Regex pattern to filter when hook fires (by tool name, event source, etc.)"
+        },
+        "command": {
+          "type": "string",
+          "description": "Shell command to execute",
+          "minLength": 1
+        },
+        "type": {
+          "type": "string",
+          "description": "Hook handler type",
+          "enum": ["command", "prompt", "agent"],
+          "default": "command"
+        },
+        "prompt": {
+          "type": "string",
+          "description": "Prompt text for prompt/agent hook types"
+        },
+        "timeout": {
+          "type": "integer",
+          "description": "Execution timeout in seconds",
+          "minimum": 1,
+          "default": 30
+        },
+        "async": {
+          "type": "boolean",
+          "description": "Run hook in background (command hooks only)",
+          "default": false
+        }
+      },
+      "additionalProperties": true
+    },
+    "hookArray": {
+      "type": "array",
+      "description": "Array of hooks for an event",
+      "items": {
+        "$ref": "#/$defs/hook"
+      }
+    },
+    "unifiedHooks": {
+      "type": "object",
+      "description": "Unified hook events (translated to backend-specific format)",
+      "properties": {
+        "pre_tool": {
+          "$ref": "#/$defs/hookArray",
+          "description": "Before tool execution"
+        },
+        "post_tool": {
+          "$ref": "#/$defs/hookArray",
+          "description": "After tool execution"
+        },
+        "session_start": {
+          "$ref": "#/$defs/hookArray",
+          "description": "When session starts"
+        },
+        "session_end": {
+          "$ref": "#/$defs/hookArray",
+          "description": "When session ends"
+        },
+        "pre_shell": {
+          "$ref": "#/$defs/hookArray",
+          "description": "Before shell command execution"
+        },
+        "post_file_edit": {
+          "$ref": "#/$defs/hookArray",
+          "description": "After file edit"
+        }
+      },
+      "additionalProperties": false
+    },
+    "hooksConfig": {
+      "type": "object",
+      "description": "Hooks configuration",
+      "properties": {
+        "unified": {
+          "$ref": "#/$defs/unifiedHooks",
+          "description": "Unified hooks (translated per-backend)"
+        },
+        "plugins": {
+          "type": "object",
+          "description": "Backend-specific passthrough hooks (keyed by plugin name)",
+          "additionalProperties": {
+            "type": "object",
+            "description": "Backend-native hook events",
+            "additionalProperties": {
+              "$ref": "#/$defs/hookArray"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

@@ -6,176 +6,349 @@ tags:
 content: |-
     # ast-grep: Structural Code Search & Replace
 
-    Use ast-grep for large-scale find and replace operations in source code. It understands code structure (AST) rather than treating code as plain text.
+    AST-aware tool for searching, linting, and rewriting code. Uses tree-sitter to parse code into syntax trees, matching structure rather than text.
 
-    ## When to Use ast-grep
-
-    - Renaming functions, variables, or types across a codebase
-    - Refactoring API usage patterns
-    - Migrating deprecated patterns to new ones
-    - Finding structural code patterns (not just text matches)
-    - Any change affecting more than a handful of files
-
-    ## Why ast-grep Over Text-Based Tools
-
-    - **Structure-aware**: Matches actual code constructs, not accidental text
-    - **Language-aware**: Understands syntax of supported languages
-    - **Safe refactoring**: Won't match strings, comments, or unrelated code
-    - **Preserves formatting**: Replaces only the matched pattern
-
-    ## Basic Usage
-
-    ```bash
-    # Search for pattern
-    ast-grep --pattern 'console.log($ARG)' --lang ts
-
-    # Search and replace
-    ast-grep --pattern 'console.log($ARG)' --rewrite 'logger.debug($ARG)' --lang ts
-
-    # Interactive mode (review each match)
-    ast-grep --pattern 'OLD_PATTERN' --rewrite 'NEW_PATTERN' --interactive
-
-    # Apply changes in place
-    ast-grep --pattern 'OLD' --rewrite 'NEW' --lang py --update-all
-    ```
-
-    ## Pattern Syntax
-
-    - `$NAME` — Named metavariable, matches any single AST node
-    - `$$$` — Matches zero or more AST nodes (variadic)
-    - `$_` — Anonymous metavariable (wildcard, don't capture)
-    - Literal code matches itself exactly
-
-    ## Examples
-
-    ```bash
-    # Rename function calls
-    ast-grep -p 'getUserById($ID)' -r 'fetchUser($ID)' --lang ts
-
-    # Update import paths
-    ast-grep -p 'from "old/path"' -r 'from "new/path"' --lang ts
-
-    # Wrap function calls
-    ast-grep -p 'dangerousOp($ARGS)' -r 'try { dangerousOp($ARGS) } catch (e) { handleError(e) }' --lang ts
-
-    # Remove deprecated function argument
-    ast-grep -p 'createUser($NAME, $EMAIL, true)' -r 'createUser($NAME, $EMAIL)' --lang ts
-
-    # Python: dict.get with default to walrus operator
-    ast-grep -p '$D.get($K, $V)' -r '($D[$K] if $K in $D else $V)' --lang py
-    ```
-
-    ## Rule Files (Complex Patterns)
-
-    For complex or reusable patterns, use YAML rule files:
-
-    ```yaml
-    # rules/no-console-log.yaml
-    id: no-console-log
-    language: typescript
-    rule:
-      pattern: console.log($$$ARGS)
-    fix: "logger.debug($$$ARGS)"
-    ```
-
-    ```bash
-    ast-grep scan --rule rules/no-console-log.yaml
-    ```
-
-    ## Workflow
-
-    1. **Test pattern first**: Run without `--update-all` to preview matches
-    2. **Review interactively**: Use `--interactive` for careful review
-    3. **Apply changes**: Use `--update-all` when confident
-    4. **Run tests**: Verify refactoring didn't break anything
-    5. **Commit**: One logical change per commit
-
-    ## Supported Languages
-
-    TypeScript, JavaScript, Python, Rust, Go, Java, C, C++, and more.
-
-    ## Installation
-
-    ```bash
-    # macOS
-    brew install ast-grep
-
-    # cargo
-    cargo install ast-grep --locked
-
-    # npm
-    npm install -g @ast-grep/cli
-    ```
-content_hash: sha256:88330a15740255d9c6b512a00f13e99fb545675dd83dd9112fa7bc26f1f72d9e
-distilled: |-
-    # ast-grep: Structural Code Search/Replace
-
-    AST-aware find/replace for large-scale refactoring. Matches code structure, not text.
-
-    ## When to Use
-    - Renaming functions/variables/types across codebase
-    - Refactoring API patterns, migrating deprecated code
-    - Finding structural patterns (multi-file changes)
-
-    ## Why Over Text Tools
-    - Structure/language-aware, safe refactoring
-    - Won't match strings/comments, preserves formatting
-
-    ## Usage
+    ## Quick Reference
 
     ```bash
     # Search
-    ast-grep --pattern 'console.log($ARG)' --lang ts
+    ast-grep -p 'console.log($ARG)' --lang ts
 
-    # Replace
-    ast-grep --pattern 'console.log($ARG)' --rewrite 'logger.debug($ARG)' --lang ts
+    # Replace (preview)
+    ast-grep -p 'console.log($ARG)' -r 'logger.debug($ARG)' --lang ts
+
+    # Replace (apply)
+    ast-grep -p 'console.log($ARG)' -r 'logger.debug($ARG)' --lang ts -U
 
     # Interactive review
-    ast-grep -p 'OLD' -r 'NEW' --interactive
+    ast-grep -p 'PATTERN' -r 'REPLACEMENT' -i
 
-    # Apply in place
-    ast-grep -p 'OLD' -r 'NEW' --lang py --update-all
+    # Run YAML rules
+    ast-grep scan --rule rules/my-rule.yaml
+
+    # Debug: see parsed AST
+    ast-grep run -p 'PATTERN' --debug-query ast
     ```
 
-    ## Pattern Syntax
-    - `$NAME` — matches single AST node
-    - `$$$` — matches zero+ nodes (variadic)
-    - `$_` — wildcard (no capture)
-    - Literal code matches exactly
+    ## Meta-variable Syntax
 
-    ## Examples
+    | Syntax | Matches | Example |
+    |--------|---------|---------|
+    | `$VAR` | Single named AST node | `console.log($ARG)` |
+    | `$$$ARGS` | Zero or more nodes | `func($$$ARGS)` |
+    | `$_` | Wildcard (no capture) | `if ($_) { $$$_ }` |
+    | `$$VAR` | Unnamed nodes (punctuation) | `$$OP` matches `+` |
 
-    ```bash
-    ast-grep -p 'getUserById($ID)' -r 'fetchUser($ID)' --lang ts
-    ast-grep -p 'from "old/path"' -r 'from "new/path"' --lang ts
-    ast-grep -p 'createUser($NAME, $EMAIL, true)' -r 'createUser($NAME, $EMAIL)' --lang ts
-    ```
+    **Naming rules:** `$` + uppercase letters/underscores/digits (1-9). Invalid: `$lowercase`, `$123`, `$KEBAB-CASE`.
 
-    ## Rule Files
+    **Capture behavior:**
+    - Same name = must match identical code: `$A == $A` matches `x == x`, not `x == y`
+    - Prefix with `_` to suppress capture: `$_FUNC($_ARG)` matches any call with one arg
+    - Multi-node `$$$` is lazy—stops at first match of next pattern element
+
+    ## Pattern Gotchas
+
+    **Pattern must be valid, parseable code.** Fragments won't work directly.
 
     ```yaml
-    id: no-console-log
-    language: typescript
+    # WRONG: "key": $VAL is not valid JSON
+    pattern: '"key": $VAL'
+
+    # RIGHT: Use context + selector
+    pattern:
+      context: '{"key": $VAL}'
+      selector: pair
+    ```
+
+    **`kind` and `pattern` don't combine.** They're independent atomic rules. Use `context`/`selector` instead:
+
+    ```yaml
+    # WRONG: trying to match field_definition with pattern
     rule:
-      pattern: console.log($$$ARGS)
-    fix: "logger.debug($$$ARGS)"
+      kind: field_definition
+      pattern: $NAME = $VAL
+
+    # RIGHT: use pattern object
+    rule:
+      pattern:
+        context: 'class A { $NAME = $VAL }'
+        selector: field_definition
+    ```
+
+    ## Rule Types
+
+    ### Atomic (match single node)
+
+    ```yaml
+    pattern: 'console.log($ARG)'           # Code structure
+    kind: if_statement                      # AST node type
+    regex: '^use[A-Z]'                      # Node text (Rust regex)
+    nthChild: 1                             # Position (1-based)
+    ```
+
+    ### Relational (node relationships)
+
+    ```yaml
+    inside:                                 # Target within ancestor
+      kind: function_declaration
+      stopBy: end                           # Search to end (default: neighbor)
+
+    has:                                    # Target contains descendant
+      pattern: 'return $X'
+      field: body                           # Match specific field
+
+    precedes: { pattern: ... }              # Target before sibling
+    follows: { pattern: ... }               # Target after sibling
+    ```
+
+    ### Composite (boolean logic)
+
+    ```yaml
+    all: [rule1, rule2]                     # AND - all must match
+    any: [rule1, rule2]                     # OR - one must match
+    not: { pattern: ... }                   # Negation
+    matches: utility-rule-id                # Delegate to utility rule
+    ```
+
+    **Order matters in `all`:** First rule captures meta-variables; later rules use those bindings.
+
+    ## YAML Rule Structure
+
+    ```yaml
+    id: no-console                          # Required: unique ID
+    language: typescript                    # Required: target language
+    rule:                                   # Required: matching rule
+      pattern: 'console.log($$$ARGS)'
+    constraints:                            # Optional: filter meta-vars
+      ARGS:
+        regex: '^(?!.*debug).*$'            # Exclude debug messages
+    fix: 'logger.info($$$ARGS)'             # Optional: auto-fix
+    transform:                              # Optional: modify meta-vars
+      UPPER_ARG:
+        convert:
+          source: $ARG
+          toCase: upperCase
+    severity: warning                       # hint/info/warning/error/off
+    message: 'Use logger instead of console'
+    files: ['src/**/*.ts']                  # Include patterns
+    ignores: ['**/*.test.ts']               # Exclude patterns
+    ```
+
+    ## Transforms
+
+    ```yaml
+    transform:
+      # Substring extraction (Python-like slicing)
+      TRIMMED:
+        substring: { source: $VAR, startChar: 1, endChar: -1 }
+
+      # Regex replace
+      CLEANED:
+        replace: { source: $VAR, replace: '^_+', by: '' }
+
+      # Case conversion
+      SNAKE:
+        convert: { source: $VAR, toCase: snakeCase }
+    ```
+
+    Cases: `lowerCase`, `upperCase`, `capitalize`, `camelCase`, `snakeCase`, `kebabCase`, `pascalCase`
+
+    ## Fix with Range Expansion
+
+    Remove property including trailing comma:
+
+    ```yaml
+    fix:
+      template: ''
+      expandEnd: { regex: ',\s*' }
+    ```
+
+    ## Project Setup
+
+    ```bash
+    ast-grep new              # Initialize project
+    ast-grep new rule         # Create new rule
+    ```
+
+    Creates:
+    ```
+    sgconfig.yml              # Project config
+    rules/                    # Rule definitions
+    rule-tests/               # Test cases
+    utils/                    # Shared utility rules
+    ```
+
+    **sgconfig.yml:**
+    ```yaml
+    ruleDirs:
+      - rules
+    testConfigs:
+      - testDir: rule-tests
+    utilDirs:
+      - utils
+    ```
+
+    ## Testing Rules
+
+    ```yaml
+    # rule-tests/no-console-test.yml
+    id: no-console
+    valid:
+      - 'logger.info("ok")'
+      - 'debug && console.log("debug")'
+    invalid:
+      - 'console.log("error")'
+      - 'console.warn("warning")'
     ```
 
     ```bash
-    ast-grep scan --rule rules/no-console-log.yaml
+    ast-grep test --skip-snapshot-tests    # Validate rules
+    ast-grep test -U                       # Update snapshots
+    ```
+
+    ## Debugging
+
+    1. **Test in playground:** https://ast-grep.github.io/playground.html
+    2. **Inspect AST:** `ast-grep run -p 'PATTERN' --debug-query ast`
+    3. **Check node kinds:** Use playground to see exact AST structure
+    4. **UTF encoding:** CLI uses UTF-8, playground uses UTF-16
+
+    ## Limitations
+
+    ast-grep does NOT support:
+    - Scope/type analysis
+    - Control/data flow analysis
+    - Finding undefined/unused variables
+    - Taint analysis or constant propagation
+
+    These require semantic analysis beyond AST matching.
+
+    ## Common Patterns
+
+    ```bash
+    # Rename function
+    ast-grep -p 'oldFunc($$$A)' -r 'newFunc($$$A)' --lang ts -U
+
+    # Update import path
+    ast-grep -p 'from "old/path"' -r 'from "new/path"' --lang ts -U
+
+    # Remove argument
+    ast-grep -p 'fn($A, $B, true)' -r 'fn($A, $B)' --lang ts -U
+
+    # Wrap with try-catch (complex—use YAML rule)
     ```
 
     ## Workflow
-    1. Test pattern (preview matches)
-    2. Review interactively
-    3. Apply with `--update-all`
-    4. Run tests, commit
 
-    ## Install
+    1. Test pattern in playground or with `--debug-query`
+    2. Run without `-U` to preview matches
+    3. Use `-i` for interactive review
+    4. Apply with `-U` (--update-all)
+    5. Run tests to verify
+    6. Commit changes
+content_hash: sha256:2411961742722a0516f4ed5f07abdef204e5f7d1ad54cffb86716ab27c3fb5de
+distilled: |-
+    # ast-grep: Structural Code Search & Replace
 
+    AST-aware tool using tree-sitter for structural (not textual) code matching.
+
+    ## Quick Reference
     ```bash
-    brew install ast-grep
-    cargo install ast-grep --locked
-    npm install -g @ast-grep/cli
+    ast-grep -p 'console.log($ARG)' --lang ts           # Search
+    ast-grep -p 'PAT' -r 'REPL' --lang ts               # Replace preview
+    ast-grep -p 'PAT' -r 'REPL' --lang ts -U            # Replace apply
+    ast-grep -p 'PAT' -r 'REPL' -i                      # Interactive
+    ast-grep scan --rule rules/my-rule.yaml              # Run YAML rules
+    ast-grep run -p 'PAT' --debug-query ast              # Debug AST
     ```
+
+    ## Meta-variables
+
+    | Syntax | Matches |
+    |--------|---------|
+    | `$VAR` | Single AST node |
+    | `$$$ARGS` | Zero+ nodes |
+    | `$_` | Wildcard (no capture) |
+    | `$$VAR` | Unnamed nodes (punctuation) |
+
+    - Names: `$` + uppercase/underscores/digits(1-9)
+    - Same name = must match identical code
+    - Prefix `_` suppresses capture
+    - `$$$` is lazy
+
+    ## Pattern Gotchas
+
+    Pattern must be valid parseable code. Use context+selector for fragments:
+    ```yaml
+    pattern:
+      context: '{"key": $VAL}'
+      selector: pair
+    ```
+
+    `kind` and `pattern` don't combine—use `context`/`selector` instead.
+
+    ## Rule Types
+
+    **Atomic:** `pattern`, `kind`, `regex`, `nthChild`
+
+    **Relational:** `inside` (ancestor), `has` (descendant), `precedes`/`follows` (sibling). `stopBy: end` searches beyond neighbors. `field:` targets specific AST field.
+
+    **Composite:** `all` (AND), `any` (OR), `not`, `matches` (delegate). In `all`, first rule captures meta-vars for later rules.
+
+    ## YAML Rule Structure
+    ```yaml
+    id: no-console
+    language: typescript
+    rule:
+      pattern: 'console.log($$$ARGS)'
+    constraints:
+      ARGS: { regex: '^(?!.*debug).*$' }
+    fix: 'logger.info($$$ARGS)'
+    transform:
+      UPPER_ARG: { convert: { source: $ARG, toCase: upperCase } }
+    severity: warning  # hint/info/warning/error/off
+    message: 'Use logger instead of console'
+    files: ['src/**/*.ts']
+    ignores: ['**/*.test.ts']
+    ```
+
+    ## Transforms
+    - `substring`: Python-like slicing (`startChar`, `endChar`)
+    - `replace`: Regex replace (`replace`, `by`)
+    - `convert`: Case conversion (`lowerCase`, `upperCase`, `capitalize`, `camelCase`, `snakeCase`, `kebabCase`, `pascalCase`)
+
+    ## Fix Range Expansion
+    ```yaml
+    fix:
+      template: ''
+      expandEnd: { regex: ',\s*' }
+    ```
+
+    ## Project Setup
+    ```bash
+    ast-grep new              # Init (creates sgconfig.yml, rules/, rule-tests/, utils/)
+    ast-grep new rule         # Create rule
+    ```
+
+    ## Testing
+    ```yaml
+    id: no-console
+    valid: ['logger.info("ok")']
+    invalid: ['console.log("error")']
+    ```
+    ```bash
+    ast-grep test --skip-snapshot-tests
+    ast-grep test -U  # Update snapshots
+    ```
+
+    ## Debugging
+    1. Playground: https://ast-grep.github.io/playground.html
+    2. `--debug-query ast` to inspect AST
+    3. CLI=UTF-8, playground=UTF-16
+
+    ## Limitations
+    No scope/type analysis, control/data flow, unused var detection, taint analysis.
+
+    ## Workflow
+    1. Test pattern (playground/`--debug-query`) → 2. Preview (no `-U`) → 3. Interactive (`-i`) → 4. Apply (`-U`) → 5. Test → 6. Commit
 distilled_by: claude-code

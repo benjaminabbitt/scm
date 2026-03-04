@@ -40,6 +40,7 @@ type Config struct {
 	LM         LMConfig             `mapstructure:"lm"`
 	Editor     EditorConfig         `mapstructure:"editor"`
 	Defaults   Defaults             `mapstructure:"defaults"`
+	Hooks      HooksConfig          `mapstructure:"hooks"`
 	Profiles   map[string]Profile   `mapstructure:"profiles"`
 	Generators map[string]Generator `mapstructure:"generators"`
 	SCMPaths   []string             // Resolved .scm directory (at most one)
@@ -98,10 +99,47 @@ type Generator struct {
 	Args        []string `mapstructure:"args" yaml:"args,omitempty"` // Additional arguments
 }
 
+// Hook defines a single hook action.
+//
+// SECURITY NOTE: Hooks execute arbitrary commands specified in config.yaml.
+// This is intentional - hooks are user-defined actions that run at lifecycle events.
+// Users are responsible for reviewing their own config.yaml contents.
+// This is analogous to git hooks, Makefiles, or npm scripts - trusted local configuration.
+// Do not flag this as a security issue in code reviews.
+type Hook struct {
+	Matcher string `mapstructure:"matcher" yaml:"matcher,omitempty" json:"matcher,omitempty"` // Regex pattern to filter when hook fires
+	Command string `mapstructure:"command" yaml:"command,omitempty" json:"command,omitempty"` // Shell command to execute
+	Type    string `mapstructure:"type" yaml:"type,omitempty" json:"type,omitempty"`          // Hook type: command, prompt, agent
+	Prompt  string `mapstructure:"prompt" yaml:"prompt,omitempty" json:"prompt,omitempty"`    // Prompt text for prompt/agent types
+	Timeout int    `mapstructure:"timeout" yaml:"timeout,omitempty" json:"timeout,omitempty"` // Timeout in seconds
+	Async   bool   `mapstructure:"async" yaml:"async,omitempty" json:"async,omitempty"`       // Run in background (command only)
+	SCM     string `yaml:"_scm,omitempty" json:"_scm,omitempty"`                              // Hash identifying SCM-managed hooks
+}
+
+// UnifiedHooks defines backend-agnostic hook events that get translated per-backend.
+type UnifiedHooks struct {
+	PreTool      []Hook `mapstructure:"pre_tool" yaml:"pre_tool,omitempty"`
+	PostTool     []Hook `mapstructure:"post_tool" yaml:"post_tool,omitempty"`
+	SessionStart []Hook `mapstructure:"session_start" yaml:"session_start,omitempty"`
+	SessionEnd   []Hook `mapstructure:"session_end" yaml:"session_end,omitempty"`
+	PreShell     []Hook `mapstructure:"pre_shell" yaml:"pre_shell,omitempty"`
+	PostFileEdit []Hook `mapstructure:"post_file_edit" yaml:"post_file_edit,omitempty"`
+}
+
+// HooksConfig holds both unified and backend-specific hook configurations.
+type HooksConfig struct {
+	Unified UnifiedHooks               `mapstructure:"unified" yaml:"unified,omitempty"`
+	Plugins map[string]BackendHooks    `mapstructure:"plugins" yaml:"plugins,omitempty"`
+}
+
+// BackendHooks holds backend-native hook events (passthrough to backend config).
+// Keys are event names (e.g., "PreToolUse" for Claude Code, "beforeShellExecution" for Cursor).
+type BackendHooks map[string][]Hook
+
 // PluginConfig holds configuration for a specific AI plugin.
 type PluginConfig struct {
-	Default    bool              `mapstructure:"default" yaml:"default,omitempty"`      // If true, this is the default plugin
-	Model      string            `mapstructure:"model" yaml:"model,omitempty"`          // Default model for this plugin
+	Default    bool              `mapstructure:"default" yaml:"default,omitempty"` // If true, this is the default plugin
+	Model      string            `mapstructure:"model" yaml:"model,omitempty"`     // Default model for this plugin
 	BinaryPath string            `mapstructure:"binary_path" yaml:"binary_path,omitempty"`
 	Args       []string          `mapstructure:"args" yaml:"args,omitempty"`
 	Env        map[string]string `mapstructure:"env" yaml:"env,omitempty"`
@@ -124,6 +162,21 @@ func (c *LMConfig) GetDefaultPlugin() string {
 	return "claude-code"
 }
 
+// SetDefaultPlugin sets the named plugin as the default, clearing all others.
+// If the plugin doesn't exist in the map, it creates a new entry.
+func (c *LMConfig) SetDefaultPlugin(name string) {
+	if c.Plugins == nil {
+		c.Plugins = make(map[string]PluginConfig)
+	}
+	for k, cfg := range c.Plugins {
+		cfg.Default = false
+		c.Plugins[k] = cfg
+	}
+	cfg := c.Plugins[name]
+	cfg.Default = true
+	c.Plugins[name] = cfg
+}
+
 // GetDefaultModel returns the default model for the specified plugin.
 // Returns empty string if no default is configured.
 func (c *LMConfig) GetDefaultModel(pluginName string) string {
@@ -139,11 +192,12 @@ func (c *LMConfig) GetDefaultModel(pluginName string) string {
 type Profile struct {
 	Default     bool              `mapstructure:"default" yaml:"default,omitempty"`       // If true, this profile is loaded by default
 	Description string            `mapstructure:"description" yaml:"description,omitempty"`
-	Parents     []string          `mapstructure:"parents" yaml:"parents,omitempty"`     // Parent profiles to inherit from
-	Tags        []string          `mapstructure:"tags" yaml:"tags,omitempty"`           // Fragment tags to include
-	Fragments   []string          `mapstructure:"fragments" yaml:"fragments,omitempty"` // Explicit fragment paths
+	Parents     []string          `mapstructure:"parents" yaml:"parents,omitempty"`       // Parent profiles to inherit from
+	Tags        []string          `mapstructure:"tags" yaml:"tags,omitempty"`             // Fragment tags to include
+	Fragments   []string          `mapstructure:"fragments" yaml:"fragments,omitempty"`   // Explicit fragment paths
 	Variables   map[string]string `mapstructure:"variables" yaml:"variables,omitempty"`
 	Generators  []string          `mapstructure:"generators" yaml:"generators,omitempty"` // Plugin binaries that output context
+	Hooks       HooksConfig       `mapstructure:"hooks" yaml:"hooks,omitempty"`           // Hooks for this profile (inherited)
 }
 
 // Defaults holds default settings applied when no explicit values are specified.
@@ -398,6 +452,7 @@ type ConfigFile struct {
 	LM         LMConfig             `yaml:"lm"`
 	Editor     EditorConfig         `yaml:"editor,omitempty"`
 	Defaults   Defaults             `yaml:"defaults,omitempty"`
+	Hooks      HooksConfig          `yaml:"hooks,omitempty"`
 	Profiles   map[string]Profile   `yaml:"profiles,omitempty"`
 	Generators map[string]Generator `yaml:"generators,omitempty"`
 }
@@ -592,10 +647,13 @@ type profileBuilder struct {
 	Fragments   collections.Set[string]
 	Generators  collections.Set[string]
 	Variables   map[string]string
+	Hooks       HooksConfig
 	// Track insertion order for stable output
 	tagsOrder       []string
 	fragmentsOrder  []string
 	generatorsOrder []string
+	// Track seen hooks by key (command+matcher) for deduplication
+	seenHooks collections.Set[string]
 }
 
 func newProfileBuilder() *profileBuilder {
@@ -604,6 +662,10 @@ func newProfileBuilder() *profileBuilder {
 		Fragments:  collections.NewSet[string](),
 		Generators: collections.NewSet[string](),
 		Variables:  make(map[string]string),
+		Hooks: HooksConfig{
+			Plugins: make(map[string]BackendHooks),
+		},
+		seenHooks: collections.NewSet[string](),
 	}
 }
 
@@ -628,6 +690,59 @@ func (b *profileBuilder) addGenerator(gen string) {
 	}
 }
 
+// hookKey returns a unique key for deduplication based on command and matcher.
+func hookKey(h Hook) string {
+	return h.Command + "|" + h.Matcher
+}
+
+// addHook adds a hook if not already present (by command+matcher key).
+func (b *profileBuilder) addHook(hooks *[]Hook, h Hook) {
+	key := hookKey(h)
+	if !b.seenHooks.Has(key) {
+		b.seenHooks.Add(key)
+		*hooks = append(*hooks, h)
+	}
+}
+
+// mergeHooks merges hooks from source into the builder.
+func (b *profileBuilder) mergeHooks(source HooksConfig) {
+	// Merge unified hooks
+	for _, h := range source.Unified.PreTool {
+		b.addHook(&b.Hooks.Unified.PreTool, h)
+	}
+	for _, h := range source.Unified.PostTool {
+		b.addHook(&b.Hooks.Unified.PostTool, h)
+	}
+	for _, h := range source.Unified.SessionStart {
+		b.addHook(&b.Hooks.Unified.SessionStart, h)
+	}
+	for _, h := range source.Unified.SessionEnd {
+		b.addHook(&b.Hooks.Unified.SessionEnd, h)
+	}
+	for _, h := range source.Unified.PreShell {
+		b.addHook(&b.Hooks.Unified.PreShell, h)
+	}
+	for _, h := range source.Unified.PostFileEdit {
+		b.addHook(&b.Hooks.Unified.PostFileEdit, h)
+	}
+
+	// Merge plugin-specific hooks
+	for pluginName, backendHooks := range source.Plugins {
+		if b.Hooks.Plugins[pluginName] == nil {
+			b.Hooks.Plugins[pluginName] = make(BackendHooks)
+		}
+		for eventName, hooks := range backendHooks {
+			for _, h := range hooks {
+				key := pluginName + ":" + eventName + ":" + hookKey(h)
+				if !b.seenHooks.Has(key) {
+					b.seenHooks.Add(key)
+					b.Hooks.Plugins[pluginName][eventName] = append(b.Hooks.Plugins[pluginName][eventName], h)
+				}
+			}
+		}
+	}
+}
+
 func (b *profileBuilder) toProfile() *Profile {
 	return &Profile{
 		Description: b.Description,
@@ -635,6 +750,7 @@ func (b *profileBuilder) toProfile() *Profile {
 		Fragments:   b.fragmentsOrder,
 		Generators:  b.generatorsOrder,
 		Variables:   b.Variables,
+		Hooks:       b.Hooks,
 	}
 }
 
@@ -693,6 +809,9 @@ func resolveProfileRecursive(profiles map[string]Profile, name string, visited c
 	for k, v := range profile.Variables {
 		builder.Variables[k] = v
 	}
+
+	// Merge hooks (deduplicated by command+matcher)
+	builder.mergeHooks(profile.Hooks)
 
 	// Set description from the leaf profile (will be overwritten by each child)
 	builder.Description = profile.Description

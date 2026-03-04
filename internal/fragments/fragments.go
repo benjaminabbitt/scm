@@ -18,6 +18,30 @@ import (
 	"github.com/benjaminabbitt/scm/internal/logging"
 )
 
+// ClaudeCodeConfig holds configuration for exporting prompts as Claude Code slash commands.
+type ClaudeCodeConfig struct {
+	Enabled      *bool    `yaml:"enabled"`       // nil = true (opt-out model)
+	Description  string   `yaml:"description"`   // For /help display
+	ArgumentHint string   `yaml:"argument_hint"` // Autocomplete hint, e.g., "[file] [focus]"
+	AllowedTools []string `yaml:"allowed_tools"` // Tool restrictions
+	Model        string   `yaml:"model"`         // Override model for this command
+}
+
+// IsEnabled returns true unless explicitly disabled (opt-out model).
+func (c ClaudeCodeConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
+}
+
+// LMPluginConfig holds LM plugin-specific settings for fragments/prompts.
+type LMPluginConfig struct {
+	ClaudeCode ClaudeCodeConfig `yaml:"claude-code"`
+}
+
+// PluginsConfig holds plugin-specific settings for fragments/prompts.
+type PluginsConfig struct {
+	LM LMPluginConfig `yaml:"lm"`
+}
+
 // Fragment represents a parsed YAML context fragment file.
 //
 // YAML format:
@@ -31,6 +55,14 @@ import (
 //	  - project_name
 //	  - language
 //	no_distill: true  # Optional: skip distillation for this fragment
+//	plugins:          # Optional: plugin-specific settings
+//	  lm:
+//	    claude-code:  # Claude Code slash command export settings
+//	      enabled: false  # Set false to skip export (default: exported)
+//	      description: "..."
+//	      argument_hint: "[file] [focus]"
+//	      allowed_tools: ["Read", "Grep"]
+//	      model: "claude-sonnet-4-20250514"
 //	content: |
 //	  # Your markdown content here
 //	content_hash: "sha256:abc123..."
@@ -49,7 +81,8 @@ type Fragment struct {
 	ContentHash string            // SHA256 hash of content (for change detection)
 	Distilled   string            // Distilled/compressed version of content
 	DistilledBy string            // LLM that performed the distillation (e.g., "claude-3-opus")
-	NoDistill   bool              // If true, skip distillation for this fragment
+	NoDistill   bool          // If true, skip distillation for this fragment
+	Plugins     PluginsConfig // Plugin-specific settings
 }
 
 // Loader finds and loads context fragments from .scm directories.
@@ -403,6 +436,7 @@ func parseYAMLFragment(data []byte) (*Fragment, error) {
 		Distilled:   strings.TrimSpace(yf.Distilled),
 		DistilledBy: yf.DistilledBy,
 		NoDistill:   yf.NoDistill,
+		Plugins:     yf.Plugins,
 	}
 
 	// Copy exports if present (from generator output)
@@ -671,7 +705,8 @@ type yamlFragment struct {
 	Distilled   string            `yaml:"distilled,omitempty"`    // Distilled version of content
 	DistilledBy string            `yaml:"distilled_by,omitempty"` // LLM that performed distillation
 	NoDistill   bool              `yaml:"no_distill,omitempty"`   // If true, skip distillation
-	Exports     map[string]string `yaml:"exports,omitempty"`      // For generator output
+	Exports map[string]string `yaml:"exports,omitempty"` // For generator output
+	Plugins PluginsConfig     `yaml:"plugins,omitempty"` // Plugin-specific settings
 }
 
 // ParseYAML parses YAML content as a fragment.
