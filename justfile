@@ -9,12 +9,8 @@ version := `versionator version -t "{{Prefix}}{{MajorMinorPatch}}{{PreReleaseWit
 validate:
     go run ./cmd/validate
 
-# Distill resources before packaging
-distill-resources:
-    go run . distill ./resources
-
 # Build all binaries (main app + generators + plugins)
-build: validate distill-resources proto build-scm build-generators
+build: validate proto build-scm build-generators
 
 # Build the main binary
 build-scm:
@@ -113,8 +109,15 @@ lint:
 run *ARGS:
     go run . {{ARGS}}
 
-# Build and install to ~/.local/bin
-install: build-static
+# Build and install to ~/go/bin (default Go binary location)
+install: build
+    mkdir -p ~/go/bin
+    -rm -f ~/go/bin/scm 2>/dev/null
+    cp scm ~/go/bin/
+    cp bin/scm-gen-* ~/go/bin/ 2>/dev/null || true
+
+# Build static and install to ~/.local/bin
+install-local: build-static
     mkdir -p ~/.local/bin
     -pkill -x scm && sleep 0.5
     cp scm ~/.local/bin/
@@ -133,7 +136,7 @@ uninstall:
     rm -f ~/.local/bin/scm-gen-*
 
 # Build static binaries
-build-static: validate distill-resources proto
+build-static: validate proto
     CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/benjaminabbitt/scm/cmd.Version={{version}}" -o scm .
     CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/scm-gen-simple ./cmd/generators/simple
 

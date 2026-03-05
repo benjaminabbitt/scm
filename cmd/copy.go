@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -36,8 +35,8 @@ type Location int
 
 const (
 	LocationEmbedded Location = iota
-	LocationHome
 	LocationProject
+	LocationHome // User's home directory (~/.scm)
 	LocationPath // Arbitrary filesystem path
 )
 
@@ -51,10 +50,10 @@ func parseLocation(s string) (ParsedLocation, error) {
 	switch strings.ToLower(s) {
 	case "embedded", "e":
 		return ParsedLocation{Type: LocationEmbedded}, nil
-	case "home", "h":
-		return ParsedLocation{Type: LocationHome}, nil
 	case "project", "p":
 		return ParsedLocation{Type: LocationProject}, nil
+	case "home", "h":
+		return ParsedLocation{Type: LocationHome}, nil
 	default:
 		// Check if it's a path (contains / or \ or is absolute)
 		if strings.ContainsAny(s, "/\\") || filepath.IsAbs(s) || s == "." || s == ".." {
@@ -64,7 +63,7 @@ func parseLocation(s string) (ParsedLocation, error) {
 			}
 			return ParsedLocation{Type: LocationPath, Path: absPath}, nil
 		}
-		return ParsedLocation{}, fmt.Errorf("invalid location %q: must be embedded (e), home (h), project (p), or a path", s)
+		return ParsedLocation{}, fmt.Errorf("invalid location %q: must be embedded (e), project (p), or a path", s)
 	}
 }
 
@@ -72,10 +71,10 @@ func (l Location) String() string {
 	switch l {
 	case LocationEmbedded:
 		return "embedded"
-	case LocationHome:
-		return "home"
 	case LocationProject:
 		return "project"
+	case LocationHome:
+		return "home"
 	case LocationPath:
 		return "path"
 	default:
@@ -109,11 +108,10 @@ var copyCmd = &cobra.Command{
 	Use:     "copy <from> <to>",
 	Aliases: []string{"cp"},
 	Short:   "Copy fragments and prompts between locations",
-	Long: `Copy context fragments and prompts between embedded, home, project, or a path.
+	Long: `Copy context fragments and prompts between embedded, project, or a path.
 
 Locations:
   embedded (e)   - Embedded default fragments and prompts
-  home (h)       - ~/.scm directory
   project (p)    - .scm directory in the current project
   <path>         - Arbitrary directory path (creates .scm subdirectory)
 
@@ -186,18 +184,15 @@ func runCopy(cmd *cobra.Command, args []string) error {
 	if copyClear {
 		var scmDir string
 		switch to.Type {
-		case LocationHome:
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return fmt.Errorf("failed to get home directory: %w", err)
-			}
-			scmDir = filepath.Join(home, config.SCMDirName)
 		case LocationProject:
 			rootDir := findGitRoot()
 			if rootDir == "" {
 				rootDir, _ = os.Getwd()
 			}
 			scmDir = filepath.Join(rootDir, config.SCMDirName)
+		case LocationHome:
+			homeDir, _ := os.UserHomeDir()
+			scmDir = filepath.Join(homeDir, config.SCMDirName)
 		case LocationPath:
 			scmDir = filepath.Join(to.Path, config.SCMDirName)
 		case LocationEmbedded:
@@ -221,7 +216,7 @@ func runCopy(cmd *cobra.Command, args []string) error {
 	removeHeader := from.Type == LocationProject
 
 	// Build fragment filter from flags
-	fragmentFilter, err := buildFragmentFilter()
+	fragmentFilter, err := buildFragmentFilter(from)
 	if err != nil {
 		return err
 	}
@@ -280,13 +275,6 @@ func runCopy(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println()
 
-	// Initialize home directory as git repo if copying to home
-	if to.Type == LocationHome {
-		if err := ensureHomeGitRepo(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to initialize git repo: %v\n", err)
-		}
-	}
-
 	return nil
 }
 
@@ -303,15 +291,6 @@ func getLocationPaths(loc ParsedLocation) (fragDir, promptDir string, err error)
 		return filepath.Join(pwd, "resources", "context-fragments"),
 			filepath.Join(pwd, "resources", "prompts"), nil
 
-	case LocationHome:
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", "", err
-		}
-		scmDir := filepath.Join(home, config.SCMDirName)
-		return filepath.Join(scmDir, config.ContextFragmentsDir),
-			filepath.Join(scmDir, config.PromptsDir), nil
-
 	case LocationProject:
 		rootDir := findGitRoot()
 		if rootDir == "" {
@@ -321,6 +300,15 @@ func getLocationPaths(loc ParsedLocation) (fragDir, promptDir string, err error)
 			}
 		}
 		scmDir := filepath.Join(rootDir, config.SCMDirName)
+		return filepath.Join(scmDir, config.ContextFragmentsDir),
+			filepath.Join(scmDir, config.PromptsDir), nil
+
+	case LocationHome:
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", "", err
+		}
+		scmDir := filepath.Join(homeDir, config.SCMDirName)
 		return filepath.Join(scmDir, config.ContextFragmentsDir),
 			filepath.Join(scmDir, config.PromptsDir), nil
 
@@ -344,13 +332,6 @@ func getConfigPath(loc ParsedLocation) (string, error) {
 		}
 		return filepath.Join(pwd, "resources", "config.yaml"), nil
 
-	case LocationHome:
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(home, config.SCMDirName, "config.yaml"), nil
-
 	case LocationProject:
 		rootDir := findGitRoot()
 		if rootDir == "" {
@@ -361,6 +342,13 @@ func getConfigPath(loc ParsedLocation) (string, error) {
 			}
 		}
 		return filepath.Join(rootDir, config.SCMDirName, "config.yaml"), nil
+
+	case LocationHome:
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(homeDir, config.SCMDirName, "config.yaml"), nil
 
 	case LocationPath:
 		return filepath.Join(loc.Path, config.SCMDirName, "config.yaml"), nil
@@ -423,7 +411,7 @@ func copyConfigWithOptions(from ParsedLocation, to Location, _ /* addHeader */, 
 	return result, nil
 }
 
-func buildFragmentFilter() ([]string, error) {
+func buildFragmentFilter(from ParsedLocation) ([]string, error) {
 	var filter []string
 
 	// Add explicit fragments
@@ -431,19 +419,12 @@ func buildFragmentFilter() ([]string, error) {
 
 	// Add fragments from profiles
 	if len(copyProfiles) > 0 {
-		embeddedCfg, err := config.LoadEmbeddedConfig()
+		cfg, err := loadConfigForLocation(from)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load config: %w", err)
 		}
 
-		homeCfg, _ := config.LoadHomeConfig()
-		allProfiles := make(map[string]config.Profile)
-		config.MergeProfiles(allProfiles, embeddedCfg.Profiles)
-		if homeCfg != nil {
-			config.MergeProfiles(allProfiles, homeCfg.Profiles)
-		}
-
-		profileFrags, err := config.CollectFragmentsForProfiles(allProfiles, copyProfiles)
+		profileFrags, err := config.CollectFragmentsForProfiles(cfg.Profiles, copyProfiles)
 		if err != nil {
 			return nil, err
 		}
@@ -451,6 +432,24 @@ func buildFragmentFilter() ([]string, error) {
 	}
 
 	return filter, nil
+}
+
+// loadConfigForLocation loads the config from the appropriate location.
+func loadConfigForLocation(loc ParsedLocation) (*config.Config, error) {
+	switch loc.Type {
+	case LocationEmbedded:
+		return config.LoadEmbeddedConfig()
+	case LocationHome:
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return nil, err
+		}
+		return config.LoadFromDir(filepath.Join(homeDir, config.SCMDirName))
+	case LocationProject, LocationPath:
+		return config.Load()
+	default:
+		return config.Load()
+	}
 }
 
 func copyFragmentsWithOptions(from Location, srcDir, dstDir string, filter []string, addHeader, removeHeader bool) (*CopyResult, error) {
@@ -906,34 +905,6 @@ func findGitRoot() string {
 		return ""
 	}
 	return root
-}
-
-// ensureHomeGitRepo initializes ~/.scm as a git repository if it isn't already.
-func ensureHomeGitRepo() error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-
-	scmDir := filepath.Join(home, config.SCMDirName)
-	gitDir := filepath.Join(scmDir, ".git")
-
-	// Check if already a git repo
-	if info, err := os.Stat(gitDir); err == nil && info.IsDir() {
-		return nil
-	}
-
-	// Initialize git repo
-	fmt.Printf("Initializing %s as git repository...\n", scmDir)
-
-	cmd := exec.Command("git", "init")
-	cmd.Dir = scmDir
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git init failed: %w\n%s", err, output)
-	}
-
-
-	return nil
 }
 
 func init() {

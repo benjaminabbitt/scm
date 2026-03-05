@@ -324,19 +324,169 @@ func TestGetHookWriter(t *testing.T) {
 	}
 }
 
-func TestNewContextInjectionHook(t *testing.T) {
-	hook := NewContextInjectionHook()
+func TestClaudeCodeHookWriter_MCPServerInjection(t *testing.T) {
+	tmpDir := t.TempDir()
+	writer := &ClaudeCodeHookWriter{}
 
-	if hook.Command != ContextInjectionCommand {
-		t.Errorf("expected command %q, got %q", ContextInjectionCommand, hook.Command)
+	// Empty config should still add MCP server
+	cfg := &config.HooksConfig{}
+
+	err := writer.WriteHooks(cfg, tmpDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if hook.Type != "command" {
-		t.Errorf("expected type 'command', got %q", hook.Type)
+
+	// MCP servers are now written to .mcp.json (not settings.json)
+	mcpPath := filepath.Join(tmpDir, ".mcp.json")
+	data, err := os.ReadFile(mcpPath)
+	if err != nil {
+		t.Fatalf("failed to read .mcp.json: %v", err)
 	}
-	if hook.Timeout != ContextInjectionTimeout {
-		t.Errorf("expected timeout %d, got %d", ContextInjectionTimeout, hook.Timeout)
+
+	var mcpConfig map[string]interface{}
+	if err := json.Unmarshal(data, &mcpConfig); err != nil {
+		t.Fatalf("failed to parse .mcp.json: %v", err)
 	}
-	if hook.Timeout == 0 {
-		t.Error("timeout should not be zero - prevents Claude from hanging if scm isn't found")
+
+	mcpServers, ok := mcpConfig["mcpServers"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected mcpServers in .mcp.json")
+	}
+
+	scmServer, ok := mcpServers["scm"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected 'scm' MCP server")
+	}
+
+	if _, ok := scmServer["_scm"]; !ok {
+		t.Error("SCM MCP server should have _scm marker")
+	}
+
+	if scmServer["command"] == "" {
+		t.Error("SCM MCP server should have command")
+	}
+
+	// Verify settings.json does NOT contain mcpServers
+	settingsPath := filepath.Join(tmpDir, ".claude", "settings.json")
+	if data, err := os.ReadFile(settingsPath); err == nil {
+		var settings map[string]interface{}
+		json.Unmarshal(data, &settings)
+		if _, ok := settings["mcpServers"]; ok {
+			t.Error("settings.json should NOT contain mcpServers (they belong in .mcp.json)")
+		}
 	}
 }
+
+func TestClaudeCodeHookWriter_PreservesUserMCPServers(t *testing.T) {
+	tmpDir := t.TempDir()
+	writer := &ClaudeCodeHookWriter{}
+
+	// Create existing .mcp.json with user-defined MCP servers
+	existingMCP := map[string]interface{}{
+		"mcpServers": map[string]interface{}{
+			"my-custom-server": map[string]interface{}{
+				"command": "/usr/local/bin/my-mcp-server",
+				"args":    []string{"--port", "3000"},
+				// No _scm field - user-defined
+			},
+			"another-server": map[string]interface{}{
+				"command": "python",
+				"args":    []string{"-m", "mcp_server"},
+			},
+		},
+	}
+
+	data, _ := json.MarshalIndent(existingMCP, "", "  ")
+	os.WriteFile(filepath.Join(tmpDir, ".mcp.json"), data, 0644)
+
+	// Write hooks with SCM config
+	cfg := &config.HooksConfig{}
+	err := writer.WriteHooks(cfg, tmpDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Read updated .mcp.json
+	mcpPath := filepath.Join(tmpDir, ".mcp.json")
+	data, _ = os.ReadFile(mcpPath)
+
+	var mcpConfig map[string]interface{}
+	json.Unmarshal(data, &mcpConfig)
+
+	mcpServers := mcpConfig["mcpServers"].(map[string]interface{})
+
+	// User servers should be preserved
+	if _, ok := mcpServers["my-custom-server"]; !ok {
+		t.Error("user-defined 'my-custom-server' should be preserved")
+	}
+	if _, ok := mcpServers["another-server"]; !ok {
+		t.Error("user-defined 'another-server' should be preserved")
+	}
+
+	// SCM server should be added
+	if _, ok := mcpServers["scm"]; !ok {
+		t.Error("SCM MCP server should be added")
+	}
+
+	// Verify total count
+	if len(mcpServers) != 3 {
+		t.Errorf("expected 3 MCP servers (2 user + 1 scm), got %d", len(mcpServers))
+	}
+}
+
+func TestClaudeCodeHookWriter_UpdatesSCMMCPServer(t *testing.T) {
+	tmpDir := t.TempDir()
+	writer := &ClaudeCodeHookWriter{}
+
+	// Create existing .mcp.json with old SCM MCP server
+	existingMCP := map[string]interface{}{
+		"mcpServers": map[string]interface{}{
+			"scm": map[string]interface{}{
+				"command": "/old/path/to/scm mcp",
+				"_scm":    "old-marker",
+			},
+			"user-server": map[string]interface{}{
+				"command": "/usr/bin/user-mcp",
+			},
+		},
+	}
+
+	data, _ := json.MarshalIndent(existingMCP, "", "  ")
+	os.WriteFile(filepath.Join(tmpDir, ".mcp.json"), data, 0644)
+
+	// Write hooks - should update SCM server
+	cfg := &config.HooksConfig{}
+	err := writer.WriteHooks(cfg, tmpDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Read updated .mcp.json
+	mcpPath := filepath.Join(tmpDir, ".mcp.json")
+	data, _ = os.ReadFile(mcpPath)
+
+	var mcpConfig map[string]interface{}
+	json.Unmarshal(data, &mcpConfig)
+
+	mcpServers := mcpConfig["mcpServers"].(map[string]interface{})
+
+	// User server should be preserved
+	if _, ok := mcpServers["user-server"]; !ok {
+		t.Error("user-defined server should be preserved")
+	}
+
+	// SCM server should be updated (not duplicate)
+	scmServer := mcpServers["scm"].(map[string]interface{})
+	if scmServer["command"] == "/old/path/to/scm mcp" {
+		t.Error("SCM server command should be updated")
+	}
+	if scmServer["_scm"] == "old-marker" {
+		t.Error("SCM server marker should be updated")
+	}
+
+	// Should still have exactly 2 servers
+	if len(mcpServers) != 2 {
+		t.Errorf("expected 2 MCP servers, got %d", len(mcpServers))
+	}
+}
+

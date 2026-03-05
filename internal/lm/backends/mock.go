@@ -7,8 +7,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-
-	pb "github.com/benjaminabbitt/scm/internal/lm/grpc"
 )
 
 // Mock implements the Backend interface for testing purposes.
@@ -22,50 +20,59 @@ import (
 //   - SCM_MOCK_RECORD_FILE: File to write received input to for verification
 type Mock struct {
 	BaseBackend
-	BinaryPath string
-	Args       []string
-	Env        map[string]string
+	fragments []*Fragment
 }
 
 // NewMock creates a new Mock backend.
 func NewMock() *Mock {
 	return &Mock{
 		BaseBackend: NewBaseBackend("mock", "1.0.0"),
-		Args:        []string{},
-		Env:         make(map[string]string),
 	}
 }
 
-// Run executes the mock backend with the given request.
-// It echoes back information about the request for testing purposes.
-func (b *Mock) Run(ctx context.Context, req *pb.RunRequest, stdout, stderr io.Writer) (int32, *pb.ModelInfo, error) {
-	opts := req.GetOptions()
-	if opts == nil {
-		opts = &pb.RunOptions{}
-	}
+// Lifecycle returns nil - Mock doesn't support lifecycle hooks.
+func (b *Mock) Lifecycle() LifecycleHandler { return nil }
 
+// Skills returns nil - Mock doesn't support skills.
+func (b *Mock) Skills() SkillRegistry { return nil }
+
+// Context returns nil - Mock doesn't need a context provider.
+func (b *Mock) Context() ContextProvider { return nil }
+
+// MCP returns nil - Mock doesn't support MCP servers.
+func (b *Mock) MCP() MCPManager { return nil }
+
+// Setup prepares the backend for execution.
+func (b *Mock) Setup(ctx context.Context, req *SetupRequest) error {
+	b.SetWorkDir(req.WorkDir)
+	b.fragments = req.Fragments
+	return nil
+}
+
+// Execute runs the mock backend with the given request.
+// It echoes back information about the request for testing purposes.
+func (b *Mock) Execute(ctx context.Context, req *ExecuteRequest, stdout, stderr io.Writer) (*ExecuteResult, error) {
 	// Build model info
-	modelInfo := &pb.ModelInfo{
+	modelInfo := &ModelInfo{
 		ModelName: "mock-model",
 		Provider:  "mock",
 	}
 
-	// Check for record file in environment (from options or os env)
-	// Note: config parser lowercases keys, so check both forms
-	recordFile := getEnvFromOpts(opts, "SCM_MOCK_RECORD_FILE")
+	// Check for record file in environment
+	recordFile := getEnvFromMap(req.Env, "SCM_MOCK_RECORD_FILE")
 
 	// Assemble context from fragments
-	context := b.AssembleContext(req.Fragments)
-	promptContent := b.GetPromptContent(req)
+	contextStr := AssembleContext(b.fragments)
+	promptContent := GetPromptContent(req.Prompt)
 
 	// Record input if requested
 	if recordFile != "" {
 		var input strings.Builder
 		input.WriteString("=== Arguments ===\n")
-		input.WriteString(fmt.Sprintf("mode=%s\n", opts.Mode.String()))
-		input.WriteString(fmt.Sprintf("fragments=%d\n", len(req.Fragments)))
+		input.WriteString(fmt.Sprintf("mode=%d\n", req.Mode))
+		input.WriteString(fmt.Sprintf("fragments=%d\n", len(b.fragments)))
 		input.WriteString("=== Context ===\n")
-		input.WriteString(context)
+		input.WriteString(contextStr)
 		input.WriteString("\n=== Prompt ===\n")
 		input.WriteString(promptContent)
 		input.WriteString("\n")
@@ -76,11 +83,11 @@ func (b *Mock) Run(ctx context.Context, req *pb.RunRequest, stdout, stderr io.Wr
 	}
 
 	// Check for custom response
-	customResponse := getEnvFromOpts(opts, "SCM_MOCK_RESPONSE")
+	customResponse := getEnvFromMap(req.Env, "SCM_MOCK_RESPONSE")
 
 	// Check for custom exit code
 	exitCode := int32(0)
-	exitCodeStr := getEnvFromOpts(opts, "SCM_MOCK_EXIT_CODE")
+	exitCodeStr := getEnvFromMap(req.Env, "SCM_MOCK_EXIT_CODE")
 	if exitCodeStr != "" {
 		if code, err := strconv.Atoi(exitCodeStr); err == nil {
 			exitCode = int32(code)
@@ -95,11 +102,11 @@ func (b *Mock) Run(ctx context.Context, req *pb.RunRequest, stdout, stderr io.Wr
 		response.WriteString(customResponse)
 	} else {
 		// Default echo behavior
-		response.WriteString(fmt.Sprintf("[mock] mode=%s\n", opts.Mode.String()))
-		response.WriteString(fmt.Sprintf("[mock] fragments=%d\n", len(req.Fragments)))
+		response.WriteString(fmt.Sprintf("[mock] mode=%d\n", req.Mode))
+		response.WriteString(fmt.Sprintf("[mock] fragments=%d\n", len(b.fragments)))
 
-		if context != "" {
-			response.WriteString(fmt.Sprintf("[mock] context_length=%d\n", len(context)))
+		if contextStr != "" {
+			response.WriteString(fmt.Sprintf("[mock] context_length=%d\n", len(contextStr)))
 		}
 
 		if promptContent != "" {
@@ -107,7 +114,7 @@ func (b *Mock) Run(ctx context.Context, req *pb.RunRequest, stdout, stderr io.Wr
 		}
 
 		// For distillation testing, return a compressed version
-		if strings.Contains(context, "distill") || strings.Contains(context, "compress") {
+		if strings.Contains(contextStr, "distill") || strings.Contains(contextStr, "compress") {
 			response.WriteString("[mock] distilled=Compressed content for testing\n")
 		}
 	}
@@ -115,22 +122,25 @@ func (b *Mock) Run(ctx context.Context, req *pb.RunRequest, stdout, stderr io.Wr
 	// Write response to stdout
 	_, err := stdout.Write([]byte(response.String()))
 	if err != nil {
-		return 1, modelInfo, fmt.Errorf("failed to write response: %w", err)
+		return &ExecuteResult{ExitCode: 1, ModelInfo: modelInfo}, fmt.Errorf("failed to write response: %w", err)
 	}
 
-	return exitCode, modelInfo, nil
+	return &ExecuteResult{ExitCode: exitCode, ModelInfo: modelInfo}, nil
 }
 
-// getEnvFromOpts retrieves an environment variable from options or os.Environ.
+// Cleanup releases resources after execution.
+func (b *Mock) Cleanup(ctx context.Context) error { return nil }
+
+// getEnvFromMap retrieves an environment variable from a map or os.Environ.
 // Handles case-insensitive lookup since config parser may lowercase keys.
-func getEnvFromOpts(opts *pb.RunOptions, key string) string {
-	if opts.Env != nil {
+func getEnvFromMap(env map[string]string, key string) string {
+	if env != nil {
 		// Try exact case first
-		if v, ok := opts.Env[key]; ok {
+		if v, ok := env[key]; ok {
 			return v
 		}
 		// Try lowercase (config parser may lowercase keys)
-		if v, ok := opts.Env[strings.ToLower(key)]; ok {
+		if v, ok := env[strings.ToLower(key)]; ok {
 			return v
 		}
 	}

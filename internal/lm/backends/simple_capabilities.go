@@ -1,0 +1,49 @@
+package backends
+
+// CLIContextProvider implements ContextProvider for backends that inject context via CLI arguments.
+// Context is stored in memory and retrieved during command building.
+type CLIContextProvider struct {
+	assembledContext string
+}
+
+// Provide assembles context fragments and stores them for later retrieval.
+func (c *CLIContextProvider) Provide(workDir string, fragments []*Fragment) error {
+	c.assembledContext = assembleFragments(fragments)
+	return nil
+}
+
+// Clear removes the stored context.
+func (c *CLIContextProvider) Clear(workDir string) error {
+	c.assembledContext = ""
+	return nil
+}
+
+// GetAssembled returns the assembled context string for CLI injection.
+func (c *CLIContextProvider) GetAssembled() string {
+	return c.assembledContext
+}
+
+// assembleFragments joins fragments with separators.
+func assembleFragments(fragments []*Fragment) string {
+	if len(fragments) == 0 {
+		return ""
+	}
+
+	var parts []string
+	for _, f := range fragments {
+		if f.Content == "" {
+			continue
+		}
+		parts = append(parts, f.Content)
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+
+	result := parts[0]
+	for i := 1; i < len(parts); i++ {
+		result += "\n\n---\n\n" + parts[i]
+	}
+	return result
+}

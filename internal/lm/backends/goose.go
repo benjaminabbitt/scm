@@ -4,166 +4,93 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
-	"os/exec"
 	"strings"
-
-	pb "github.com/benjaminabbitt/scm/internal/lm/grpc"
-	"github.com/benjaminabbitt/scm/internal/ptyrunner"
 )
 
 // Goose implements the Backend interface for Goose AI CLI (Block's coding assistant).
 //
 // DISCLAIMER: This plugin is untested and provided on a best-effort basis.
-// Bug reports are welcome. If the Block/Goose team would like to provide API credits
-// or licenses for testing, contributions to improve this integration are appreciated.
 type Goose struct {
 	BaseBackend
-	BinaryPath string
-	Args       []string
-	Env        map[string]string
+	context *CLIContextProvider
 }
 
 // NewGoose creates a new Goose backend with default settings.
 func NewGoose() *Goose {
-	return &Goose{
+	b := &Goose{
 		BaseBackend: NewBaseBackend("goose", "1.0.0"),
-		BinaryPath:  "goose",
-		Args:        []string{},
-		Env:         make(map[string]string),
+		context:     &CLIContextProvider{},
 	}
+	b.BinaryPath = "goose"
+	return b
 }
 
-// Run executes Goose with the given request.
-func (b *Goose) Run(ctx context.Context, req *pb.RunRequest, stdout, stderr io.Writer) (int32, *pb.ModelInfo, error) {
-	opts := req.GetOptions()
-	if opts == nil {
-		opts = &pb.RunOptions{}
-	}
+// Lifecycle returns nil - Goose doesn't support lifecycle hooks.
+func (b *Goose) Lifecycle() LifecycleHandler { return nil }
 
-	// Determine work directory
-	workDir := opts.WorkDir
-	if workDir == "" {
-		workDir = "."
-	}
+// Skills returns nil - Goose doesn't support skills.
+func (b *Goose) Skills() SkillRegistry { return nil }
 
-	// Write session-scoped context file (for tracking, no hook injection for goose)
-	session, err := WriteSessionContext(workDir, req.Fragments)
-	if err != nil {
-		fmt.Fprintf(stderr, "warning: failed to write session context: %v\n", err)
+// Context returns the context provider (CLI arg injection).
+func (b *Goose) Context() ContextProvider { return b.context }
+
+// MCP returns nil - Goose doesn't support MCP servers.
+func (b *Goose) MCP() MCPManager { return nil }
+
+// Setup prepares the backend for execution.
+func (b *Goose) Setup(ctx context.Context, req *SetupRequest) error {
+	b.SetWorkDir(req.WorkDir)
+	if _, err := WriteContextFile(b.WorkDir(), req.Fragments); err != nil {
+		return fmt.Errorf("failed to write context file: %w", err)
 	}
-	if session != nil && session.ID != "" {
-		defer CleanupSessionContext(workDir, session.ID)
+	return b.context.Provide(b.WorkDir(), req.Fragments)
+}
+
+// Execute runs the backend with the given request.
+func (b *Goose) Execute(ctx context.Context, req *ExecuteRequest, stdout, stderr io.Writer) (*ExecuteResult, error) {
+	modelName := req.Model
+	if modelName == "" {
+		modelName = "goose-default"
+	}
+	modelInfo := &ModelInfo{ModelName: modelName, Provider: "block"}
+
+	if req.DryRun {
+		return &ExecuteResult{ExitCode: 0, ModelInfo: modelInfo}, nil
 	}
 
 	args := b.buildArgs(req)
-
-	// Verbosity level 16+: show command (optional, defaults to 0)
-	if opts.Verbosity >= 16 {
+	if req.Verbosity >= 16 {
 		fmt.Fprintf(stderr, "[v16] %s %s\n", b.BinaryPath, strings.Join(args, " "))
 	}
 
-	// Build model info (optional model override)
-	modelName := "goose-default"
-	if opts.Model != "" {
-		modelName = opts.Model
-	}
-	modelInfo := &pb.ModelInfo{
-		ModelName: modelName,
-		Provider:  "block",
+	var exitCode int32
+	var err error
+	if req.Mode == ModeInteractive {
+		exitCode, err = b.RunInteractive(ctx, args, req.Env, stdout, stderr)
+	} else {
+		exitCode, err = b.RunNonInteractive(ctx, args, req.Env, stdout, stderr)
 	}
 
-	// Dry run - return without executing (optional, defaults to false)
-	if opts.DryRun {
-		return 0, modelInfo, nil
-	}
-
-	// Use PTY for interactive mode
-	if opts.Mode == pb.ExecutionMode_INTERACTIVE {
-		exitCode, err := b.runInteractive(ctx, req, args, stdout, stderr)
-		return exitCode, modelInfo, err
-	}
-	exitCode, err := b.runNonInteractive(ctx, req, args, stdout, stderr)
-	return exitCode, modelInfo, err
+	return &ExecuteResult{ExitCode: exitCode, ModelInfo: modelInfo}, err
 }
 
-// runInteractive runs Goose in interactive mode using a PTY.
-func (b *Goose) runInteractive(ctx context.Context, req *pb.RunRequest, args []string, stdout, stderr io.Writer) (int32, error) {
-	cmd := exec.CommandContext(ctx, b.BinaryPath, args...)
+// Cleanup releases resources after execution.
+func (b *Goose) Cleanup(ctx context.Context) error { return nil }
 
-	opts := req.GetOptions()
-	if opts != nil && opts.WorkDir != "" {
-		cmd.Dir = opts.WorkDir
-	}
-
-	// Set environment variables
-	cmd.Env = os.Environ()
-	for k, v := range b.Env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
-	}
-	if opts != nil {
-		for k, v := range opts.Env {
-			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
-		}
-	}
-
-	result, err := ptyrunner.RunInteractive(ctx, cmd, stdout, stderr)
-	if err != nil {
-		return 1, fmt.Errorf("failed to run goose: %w", err)
-	}
-
-	return int32(result.ExitCode), nil
-}
-
-// runNonInteractive runs Goose in non-interactive mode.
-func (b *Goose) runNonInteractive(ctx context.Context, req *pb.RunRequest, args []string, stdout, stderr io.Writer) (int32, error) {
-	cmd := exec.CommandContext(ctx, b.BinaryPath, args...)
-
-	opts := req.GetOptions()
-	if opts != nil && opts.WorkDir != "" {
-		cmd.Dir = opts.WorkDir
-	}
-
-	// Set environment variables
-	cmd.Env = os.Environ()
-	for k, v := range b.Env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
-	}
-	if opts != nil {
-		for k, v := range opts.Env {
-			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
-		}
-	}
-
-	result, err := ptyrunner.RunNonInteractive(ctx, cmd, stdout, stderr)
-	if err != nil {
-		return 1, fmt.Errorf("failed to run goose: %w", err)
-	}
-
-	return int32(result.ExitCode), nil
-}
-
-// buildArgs constructs the command-line arguments for goose.
-func (b *Goose) buildArgs(req *pb.RunRequest) []string {
-	// Start with configured args
+func (b *Goose) buildArgs(req *ExecuteRequest) []string {
 	args := make([]string, len(b.Args))
 	copy(args, b.Args)
 
-	// Assemble context from fragments
-	context := b.AssembleContext(req.Fragments)
-	promptContent := b.GetPromptContent(req)
-
-	// Goose uses "session" subcommand for interactive mode
-	// For now, pass context and prompt together
-	if promptContent != "" {
-		var prompt string
+	context := b.context.GetAssembled()
+	prompt := GetPromptContent(req.Prompt)
+	if prompt != "" {
+		var message string
 		if context != "" {
-			prompt = fmt.Sprintf("Context:\n%s\n\n---\n\nTask: %s", context, promptContent)
+			message = fmt.Sprintf("Context:\n%s\n\n---\n\nTask: %s", context, prompt)
 		} else {
-			prompt = promptContent
+			message = prompt
 		}
-		// Use --message or similar flag depending on goose CLI
-		args = append(args, prompt)
+		args = append(args, message)
 	}
 
 	return args

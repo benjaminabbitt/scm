@@ -11,6 +11,7 @@ import (
 
 	"github.com/benjaminabbitt/scm/internal/config"
 	"github.com/benjaminabbitt/scm/internal/lm/backends"
+	"github.com/benjaminabbitt/scm/internal/profiles"
 	"github.com/benjaminabbitt/scm/resources"
 )
 
@@ -180,11 +181,21 @@ func completeProfileNames(cmd *cobra.Command, args []string, toComplete string) 
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	var names []string
-	for name := range cfg.Profiles {
-		names = append(names, name)
+	profileDirs := profiles.GetProfileDirs(cfg.SCMPaths)
+	if len(profileDirs) == 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	sort.Strings(names)
+
+	loader := profiles.NewLoader(profileDirs)
+	profileList, err := loader.List()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	var names []string
+	for _, p := range profileList {
+		names = append(names, p.Name)
+	}
 
 	return filterPrefix(names, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
@@ -206,9 +217,15 @@ func completeTagNames(cmd *cobra.Command, args []string, toComplete string) ([]s
 
 	// Collect tags from profile definitions (fast - already in memory)
 	tagSet := make(map[string]bool)
-	for _, profile := range cfg.Profiles {
-		for _, tag := range profile.Tags {
-			tagSet[tag] = true
+
+	profileDirs := profiles.GetProfileDirs(cfg.SCMPaths)
+	if len(profileDirs) > 0 {
+		loader := profiles.NewLoader(profileDirs)
+		profileList, _ := loader.List()
+		for _, profile := range profileList {
+			for _, tag := range profile.Tags {
+				tagSet[tag] = true
+			}
 		}
 	}
 
@@ -246,8 +263,6 @@ func completeCopyLocations(cmd *cobra.Command, args []string, toComplete string)
 	locations := []string{
 		"embedded\tEmbedded default fragments and prompts",
 		"e\tAlias for embedded",
-		"home\t~/.scm directory",
-		"h\tAlias for home",
 		"project\t.scm in current project",
 		"p\tAlias for project",
 	}

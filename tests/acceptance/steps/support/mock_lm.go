@@ -104,9 +104,10 @@ func (m *MockLM) WriteConfig() error {
 		existingConfig = string(data)
 	}
 
-	// Extract sections to preserve (generators, profiles)
+	// Extract sections to preserve (generators, profiles, defaults)
 	generatorsSection := extractYAMLSection(existingConfig, "generators:")
 	profilesSection := extractYAMLSection(existingConfig, "profiles:")
+	defaultsSection := extractYAMLSection(existingConfig, "defaults:")
 
 	// Build config with mock settings
 	var config strings.Builder
@@ -119,8 +120,14 @@ func (m *MockLM) WriteConfig() error {
 	config.WriteString(fmt.Sprintf("        scm_mock_record_file: \"%s\"\n", m.RecordedInputPath))
 	config.WriteString(fmt.Sprintf("        scm_mock_response: \"%s\"\n", escapeYAMLString(m.Response)))
 	config.WriteString(fmt.Sprintf("        scm_mock_exit_code: \"%d\"\n", m.ExitCode))
-	config.WriteString("defaults:\n")
-	config.WriteString("  use_distilled: false\n")
+
+	// Use existing defaults section if present, otherwise add our own
+	if defaultsSection != "" {
+		config.WriteString(defaultsSection)
+	} else {
+		config.WriteString("defaults:\n")
+		config.WriteString("  use_distilled: false\n")
+	}
 
 	if generatorsSection != "" {
 		config.WriteString(generatorsSection)

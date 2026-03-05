@@ -19,17 +19,21 @@ type HookOutput struct {
 
 // HookSpecificOutput contains hook-specific data to inject.
 type HookSpecificOutput struct {
+	HookEventName     string `json:"hookEventName"`
 	AdditionalContext string `json:"additionalContext,omitempty"`
 }
 
 var hookInjectContextCmd = &cobra.Command{
-	Use:   "inject-context",
+	Use:   "inject-context <hash>",
 	Short: "Inject session context for AI tool hooks",
-	Long: `Reads the session context file identified by SCM_CONTEXT_ID environment variable
-and outputs JSON suitable for AI tool SessionStart hooks.
+	Long: `Reads the context file (.scm/context/<hash>.md) and outputs JSON suitable for
+AI tool SessionStart hooks.
 
 This command is invoked automatically by AI tools (Claude Code, Gemini CLI) during
 their SessionStart event to inject fresh context on startup, resume, or /clear.
+
+Arguments:
+  hash    The context file hash (filename without .md extension)
 
 Output format (JSON to stdout):
 {
@@ -37,9 +41,12 @@ Output format (JSON to stdout):
     "additionalContext": "<context content>"
   }
 }`,
+	Args:          cobra.ExactArgs(1),
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		hash := args[0]
+
 		// Always output valid JSON, even on errors.
 		// This ensures Claude doesn't hang waiting for output.
 		defer func() {
@@ -56,11 +63,11 @@ Output format (JSON to stdout):
 			workDir = root
 		}
 
-		// Read session context from file
-		content, err := backends.ReadSessionContext(workDir)
+		// Read context file by hash
+		content, err := backends.ReadContextFile(workDir, hash)
 		if err != nil {
 			// Log to stderr, output empty JSON to stdout
-			fmt.Fprintf(os.Stderr, "scm hook inject-context: warning: failed to read session context: %v\n", err)
+			fmt.Fprintf(os.Stderr, "scm hook inject-context: warning: failed to read context file: %v\n", err)
 			content = ""
 		}
 
@@ -68,6 +75,7 @@ Output format (JSON to stdout):
 		output := HookOutput{}
 		if content != "" {
 			output.HookSpecificOutput = &HookSpecificOutput{
+				HookEventName:     "SessionStart",
 				AdditionalContext: content,
 			}
 		}

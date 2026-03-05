@@ -94,4 +94,63 @@ content: |-
 
     When using containerized agents, include language servers in the image. See language-specific container overlays for pre-configured images with LSP support.
 content_hash: sha256:a73d150aaf4bdc8a1c8c145e89d029f0124e639d05dccbba4c2971f5a0db7a84
+distilled: |-
+    # LSP for AI Coding Agents
+
+    LSP = semantic code nav. Reduces grep searches (30-60s) to ~50ms with 100% accuracy.
+
+    ## Benefits
+
+    **Passive:** Auto error detection, self-corrects type errors/missing imports/undefined vars
+
+    **Active:**
+    - `goToDefinition` — symbol origins
+    - `findReferences` — all usages
+    - `hover` — types/docs
+    - `documentSymbol` — file functions
+    - `workspaceSymbol` — project-wide symbol search
+    - `goToImplementation` — concrete impls
+    - `incomingCalls`/`outgoingCalls` — call hierarchies
+
+    ## Claude Code Setup
+
+    ### 1. Enable Flag
+    `~/.claude/settings.json`: `{"env": {"ENABLE_LSP_TOOL": "1"}}`
+
+    ### 2. Install Servers
+    - Python: `npm i -g pyright`
+    - TS/JS: `npm i -g typescript-language-server typescript`
+    - Go: `go install golang.org/x/tools/gopls@latest`
+    - Rust: `rustup component add rust-analyzer`
+    - Java: eclipse.org/jdtls
+    - C#: `dotnet tool install --global csharp-ls`
+    - C/C++: clangd via llvm
+
+    ### 3. Install Plugins
+    ```bash
+    claude plugin marketplace update claude-plugins-official
+    claude plugin install pyright-lsp
+    claude plugin list  # verify enabled
+    ```
+
+    ### 4. Restart Claude Code
+
+    ## Agent Guidance
+
+    Prefer LSP over Grep/Glob/Read:
+    - `goToDefinition`/`goToImplementation` for sources
+    - `findReferences` for usages
+    - `workspaceSymbol` for name lookups
+    - `hover` for types
+    - Text search only when LSP unavailable
+
+    ## Troubleshooting
+
+    - **Disabled plugins:** Check `claude plugin list`—installed ≠ enabled
+    - **Missing binaries:** Verify PATH (`which pyright`, etc.)
+    - **Slow Java:** JVM warmup ~8s normal, fast after
+    - **Debug:** `~/.claude/debug/latest` for server logs
+
+    ## Containers
+    Include language servers in image; use pre-configured overlays.
 distilled_by: claude-code

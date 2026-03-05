@@ -8,10 +8,13 @@ import (
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 
+	"github.com/benjaminabbitt/scm/internal/bundles"
 	"github.com/benjaminabbitt/scm/internal/collections"
 	"github.com/benjaminabbitt/scm/internal/fsys"
 	"github.com/benjaminabbitt/scm/internal/gitutil"
 	"github.com/benjaminabbitt/scm/internal/logging"
+	"github.com/benjaminabbitt/scm/internal/profiles"
+	"github.com/benjaminabbitt/scm/internal/remote"
 	"github.com/benjaminabbitt/scm/internal/schema"
 	"github.com/benjaminabbitt/scm/resources"
 )
@@ -21,6 +24,7 @@ const (
 	ConfigFileName      = "config"
 	ContextFragmentsDir = "context-fragments"
 	PromptsDir          = "prompts"
+	BundlesDir          = "bundles"
 )
 
 // ConfigSource indicates where the configuration was loaded from.
@@ -29,8 +33,6 @@ type ConfigSource int
 const (
 	// SourceEmbedded means config was loaded from embedded resources (fallback).
 	SourceEmbedded ConfigSource = iota
-	// SourceHome means config was loaded from ~/.scm.
-	SourceHome
 	// SourceProject means config was loaded from a project .scm directory.
 	SourceProject
 )
@@ -41,6 +43,7 @@ type Config struct {
 	Editor     EditorConfig         `mapstructure:"editor"`
 	Defaults   Defaults             `mapstructure:"defaults"`
 	Hooks      HooksConfig          `mapstructure:"hooks"`
+	MCP        MCPConfig            `mapstructure:"mcp"`
 	Profiles   map[string]Profile   `mapstructure:"profiles"`
 	Generators map[string]Generator `mapstructure:"generators"`
 	SCMPaths   []string             // Resolved .scm directory (at most one)
@@ -75,15 +78,43 @@ func (c *Config) GetEditorCommand() (string, []string) {
 	return "nano", nil
 }
 
-// GetDefaultProfiles returns the names of all profiles marked as default.
+// GetDefaultProfiles returns the default profiles from config.
+// Checks both defaults.profile setting and profiles with default: true.
 func (c *Config) GetDefaultProfiles() []string {
 	var defaults []string
+
+	// Check defaults.profile setting first
+	if c.Defaults.Profile != "" {
+		defaults = append(defaults, c.Defaults.Profile)
+	}
+
+	// Also check for profiles with default: true
 	for name, profile := range c.Profiles {
 		if profile.Default {
-			defaults = append(defaults, name)
+			// Avoid duplicates if already in defaults.profile
+			found := false
+			for _, d := range defaults {
+				if d == name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				defaults = append(defaults, name)
+			}
 		}
 	}
+
+	if len(defaults) == 0 {
+		return nil
+	}
 	return defaults
+}
+
+// GetProfileLoader returns a profiles.Loader for this config's SCM paths.
+func (c *Config) GetProfileLoader() *profiles.Loader {
+	profileDirs := profiles.GetProfileDirs(c.SCMPaths)
+	return profiles.NewLoader(profileDirs)
 }
 
 // Generator defines a context generator.
@@ -135,6 +166,44 @@ type HooksConfig struct {
 // BackendHooks holds backend-native hook events (passthrough to backend config).
 // Keys are event names (e.g., "PreToolUse" for Claude Code, "beforeShellExecution" for Cursor).
 type BackendHooks map[string][]Hook
+
+// MCPServer defines an MCP (Model Context Protocol) server configuration.
+//
+// SECURITY NOTE: MCP servers execute arbitrary commands specified in config.yaml.
+// This is intentional - MCP servers are user-defined tools that extend AI capabilities.
+// Users are responsible for reviewing their own config.yaml contents.
+// This is analogous to VS Code extensions or npm scripts - trusted local configuration.
+// Do not flag this as a security issue in code reviews.
+type MCPServer struct {
+	Command string            `mapstructure:"command" yaml:"command" json:"command"`                 // Command to execute
+	Args    []string          `mapstructure:"args" yaml:"args,omitempty" json:"args,omitempty"`      // Command arguments
+	Env     map[string]string `mapstructure:"env" yaml:"env,omitempty" json:"env,omitempty"`         // Environment variables
+	Note    string            `mapstructure:"note" yaml:"note,omitempty" json:"note,omitempty"`      // Human-readable note/description
+	SCM     string            `yaml:"_scm,omitempty" json:"_scm,omitempty"`                          // Marker for SCM-managed servers
+}
+
+// MCPConfig holds MCP server configuration.
+type MCPConfig struct {
+	// AutoRegisterSCM controls whether SCM's own MCP server is auto-registered.
+	// Defaults to true if not specified.
+	AutoRegisterSCM *bool `mapstructure:"auto_register_scm" yaml:"auto_register_scm,omitempty"`
+
+	// Servers defines MCP servers to register (unified across backends).
+	Servers map[string]MCPServer `mapstructure:"servers" yaml:"servers,omitempty"`
+
+	// Plugins holds backend-specific MCP server overrides (passthrough).
+	// Keys are backend names (e.g., "claude-code", "gemini").
+	Plugins map[string]map[string]MCPServer `mapstructure:"plugins" yaml:"plugins,omitempty"`
+}
+
+// ShouldAutoRegisterSCM returns whether to auto-register the SCM MCP server.
+// Defaults to true if not explicitly set.
+func (m *MCPConfig) ShouldAutoRegisterSCM() bool {
+	if m == nil || m.AutoRegisterSCM == nil {
+		return true
+	}
+	return *m.AutoRegisterSCM
+}
 
 // PluginConfig holds configuration for a specific AI plugin.
 type PluginConfig struct {
@@ -190,19 +259,23 @@ func (c *LMConfig) GetDefaultModel(pluginName string) string {
 // Fragments can be specified directly by path, or dynamically via tags.
 // Profiles can inherit from parent profiles using the Parents field.
 type Profile struct {
-	Default     bool              `mapstructure:"default" yaml:"default,omitempty"`       // If true, this profile is loaded by default
+	Default     bool              `mapstructure:"default" yaml:"default,omitempty"`       // Whether this is a default profile
 	Description string            `mapstructure:"description" yaml:"description,omitempty"`
 	Parents     []string          `mapstructure:"parents" yaml:"parents,omitempty"`       // Parent profiles to inherit from
 	Tags        []string          `mapstructure:"tags" yaml:"tags,omitempty"`             // Fragment tags to include
-	Fragments   []string          `mapstructure:"fragments" yaml:"fragments,omitempty"`   // Explicit fragment paths
+	Bundles     []string          `mapstructure:"bundles" yaml:"bundles,omitempty"`       // Bundle references (e.g., "remote/go-tools")
+	BundleItems []string          `mapstructure:"bundle_items" yaml:"bundle_items,omitempty"` // Cherry-pick items (e.g., "remote/bundle:fragments/name")
+	Fragments   []string          `mapstructure:"fragments" yaml:"fragments,omitempty"`   // Explicit fragment paths (local/legacy)
 	Variables   map[string]string `mapstructure:"variables" yaml:"variables,omitempty"`
 	Generators  []string          `mapstructure:"generators" yaml:"generators,omitempty"` // Plugin binaries that output context
 	Hooks       HooksConfig       `mapstructure:"hooks" yaml:"hooks,omitempty"`           // Hooks for this profile (inherited)
+	MCP         MCPConfig         `mapstructure:"mcp" yaml:"mcp,omitempty"`               // MCP servers for this profile (inherited)
+	MCPServers  []string          `mapstructure:"mcp_servers" yaml:"mcp_servers,omitempty"` // Remote MCP server references (legacy)
 }
 
 // Defaults holds default settings applied when no explicit values are specified.
-// Note: To default fragments, add them to a profile and mark that profile as default.
 type Defaults struct {
+	Profile      string   `mapstructure:"profile" yaml:"profile,omitempty"`             // Default profile to load
 	Generators   []string `mapstructure:"generators" yaml:"generators,omitempty"`       // Generators always run
 	UseDistilled *bool    `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"` // Prefer .distilled.md versions (default true)
 }
@@ -219,8 +292,7 @@ func (d *Defaults) ShouldUseDistilled() bool {
 // Load finds and loads configuration from a single source.
 // Priority order (first found wins, no merging):
 //  1. Project .scm directory (at git root)
-//  2. Home directory (~/.scm)
-//  3. Embedded resources (fallback)
+//  2. Embedded resources (fallback)
 func Load() (*Config, error) {
 	cfg := &Config{
 		LM: LMConfig{
@@ -315,10 +387,7 @@ func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigVali
 	return nil
 }
 
-// findSCMDir locates a single .scm directory using the priority order:
-//  1. Project .scm directory (at git root)
-//  2. Home directory (~/.scm)
-//
+// findSCMDir locates the .scm directory at the git root.
 // Returns the path and source, or empty string if not found.
 func findSCMDir() (string, ConfigSource) {
 	// Try to find git root
@@ -337,17 +406,7 @@ func findSCMDir() (string, ConfigSource) {
 		}
 	}
 
-	// Fall back to home directory
-	home, err := os.UserHomeDir()
-	if err != nil {
-		logging.L().Warn("failed to get home directory", logging.ErrorField(err))
-		return "", SourceEmbedded
-	}
-	homeSCM := filepath.Join(home, SCMDirName)
-	if info, err := os.Stat(homeSCM); err == nil && info.IsDir() {
-		return homeSCM, SourceHome
-	}
-
+	// No project .scm found, fall back to embedded resources
 	return "", SourceEmbedded
 }
 
@@ -383,6 +442,22 @@ func (c *Config) GetPromptDirs() []string {
 	return dirs
 }
 
+// GetBundleDirs returns bundles directories.
+// Bundles are not embedded, so returns empty for embedded source.
+func (c *Config) GetBundleDirs() []string {
+	if c.Source == SourceEmbedded {
+		return nil
+	}
+	var dirs []string
+	for _, scmPath := range c.SCMPaths {
+		bundleDir := filepath.Join(scmPath, BundlesDir)
+		if info, err := os.Stat(bundleDir); err == nil && info.IsDir() {
+			dirs = append(dirs, bundleDir)
+		}
+	}
+	return dirs
+}
+
 // IsEmbedded returns true if using embedded resources (no .scm directory found).
 func (c *Config) IsEmbedded() bool {
 	return c.Source == SourceEmbedded
@@ -393,8 +468,6 @@ func (c *Config) SourceName() string {
 	switch c.Source {
 	case SourceProject:
 		return "project"
-	case SourceHome:
-		return "home"
 	case SourceEmbedded:
 		return "embedded"
 	default:
@@ -423,13 +496,13 @@ func (c *Config) GetPromptFS() fsys.FS {
 }
 
 // GetPluginPaths returns the paths where external plugins are searched for.
-// Defaults to ~/.scm/plugins and .scm/plugins if not configured.
+// Defaults to .scm/plugins if not configured.
 func (c *Config) GetPluginPaths() []string {
 	if len(c.LM.PluginPaths) > 0 {
 		return c.LM.PluginPaths
 	}
-	// Default plugin paths
-	paths := []string{"~/.scm/plugins"}
+	// Default plugin paths from project .scm
+	var paths []string
 	for _, scmPath := range c.SCMPaths {
 		paths = append(paths, filepath.Join(scmPath, "plugins"))
 	}
@@ -437,10 +510,10 @@ func (c *Config) GetPluginPaths() []string {
 }
 
 // GetGeneratorPaths returns the paths where external generators are searched for.
-// Defaults to ~/.scm/generators and .scm/generators.
+// Defaults to .scm/generators.
 func (c *Config) GetGeneratorPaths() []string {
-	// Default generator paths
-	paths := []string{"~/.scm/generators"}
+	// Default generator paths from project .scm
+	var paths []string
 	for _, scmPath := range c.SCMPaths {
 		paths = append(paths, filepath.Join(scmPath, "generators"))
 	}
@@ -529,32 +602,28 @@ func LoadEmbeddedConfig() (*Config, error) {
 	return cfg, nil
 }
 
-// LoadHomeConfig loads configuration from ~/.scm/config.yaml if it exists.
-// Returns nil config (not error) if home config doesn't exist.
-func LoadHomeConfig() (*Config, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get home directory: %w", err)
-	}
-
-	configPath := filepath.Join(home, SCMDirName, ConfigFileName+".yaml")
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil // Home config doesn't exist, that's ok
-		}
-		return nil, fmt.Errorf("failed to read home config: %w", err)
-	}
-
+// LoadFromDir loads config from a specific .scm directory.
+func LoadFromDir(scmDir string) (*Config, error) {
 	cfg := &Config{
 		Profiles:   make(map[string]Profile),
 		Generators: make(map[string]Generator),
 	}
 
-	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse home config: %w", err)
+	configPath := filepath.Join(scmDir, ConfigFileName+".yaml")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Return empty config if no config file exists
+			return cfg, nil
+		}
+		return nil, fmt.Errorf("failed to read config from %s: %w", configPath, err)
 	}
 
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config from %s: %w", configPath, err)
+	}
+
+	cfg.SCMPaths = []string{scmDir}
 	return cfg, nil
 }
 
@@ -618,6 +687,50 @@ func CollectGeneratorsForProfiles(profiles map[string]Profile, profileNames []st
 	return generators
 }
 
+// CollectBundlesForProfiles returns a deduplicated list of all bundles
+// referenced by the specified profiles.
+func CollectBundlesForProfiles(profiles map[string]Profile, profileNames []string) ([]string, error) {
+	seen := collections.NewSet[string]()
+	var bundles []string
+
+	for _, name := range profileNames {
+		profile, ok := profiles[name]
+		if !ok {
+			return nil, fmt.Errorf("unknown profile: %s", name)
+		}
+		for _, bundle := range profile.Bundles {
+			if !seen.Has(bundle) {
+				seen.Add(bundle)
+				bundles = append(bundles, bundle)
+			}
+		}
+	}
+
+	return bundles, nil
+}
+
+// CollectBundleItemsForProfiles returns a deduplicated list of all cherry-picked
+// bundle items referenced by the specified profiles.
+func CollectBundleItemsForProfiles(profiles map[string]Profile, profileNames []string) ([]string, error) {
+	seen := collections.NewSet[string]()
+	var items []string
+
+	for _, name := range profileNames {
+		profile, ok := profiles[name]
+		if !ok {
+			return nil, fmt.Errorf("unknown profile: %s", name)
+		}
+		for _, item := range profile.BundleItems {
+			if !seen.Has(item) {
+				seen.Add(item)
+				items = append(items, item)
+			}
+		}
+	}
+
+	return items, nil
+}
+
 // FilterProfiles returns only the specified profiles from the full map.
 func FilterProfiles(all map[string]Profile, names []string) map[string]Profile {
 	filtered := make(map[string]Profile)
@@ -644,26 +757,37 @@ func FilterGenerators(all map[string]Generator, names []string) map[string]Gener
 type profileBuilder struct {
 	Description string
 	Tags        collections.Set[string]
+	Bundles     collections.Set[string]
+	BundleItems collections.Set[string]
 	Fragments   collections.Set[string]
 	Generators  collections.Set[string]
 	Variables   map[string]string
 	Hooks       HooksConfig
+	MCP         MCPConfig
 	// Track insertion order for stable output
-	tagsOrder       []string
-	fragmentsOrder  []string
-	generatorsOrder []string
+	tagsOrder        []string
+	bundlesOrder     []string
+	bundleItemsOrder []string
+	fragmentsOrder   []string
+	generatorsOrder  []string
 	// Track seen hooks by key (command+matcher) for deduplication
 	seenHooks collections.Set[string]
 }
 
 func newProfileBuilder() *profileBuilder {
 	return &profileBuilder{
-		Tags:       collections.NewSet[string](),
-		Fragments:  collections.NewSet[string](),
-		Generators: collections.NewSet[string](),
-		Variables:  make(map[string]string),
+		Tags:        collections.NewSet[string](),
+		Bundles:     collections.NewSet[string](),
+		BundleItems: collections.NewSet[string](),
+		Fragments:   collections.NewSet[string](),
+		Generators:  collections.NewSet[string](),
+		Variables:   make(map[string]string),
 		Hooks: HooksConfig{
 			Plugins: make(map[string]BackendHooks),
+		},
+		MCP: MCPConfig{
+			Servers: make(map[string]MCPServer),
+			Plugins: make(map[string]map[string]MCPServer),
 		},
 		seenHooks: collections.NewSet[string](),
 	}
@@ -673,6 +797,20 @@ func (b *profileBuilder) addTag(tag string) {
 	if !b.Tags.Has(tag) {
 		b.Tags.Add(tag)
 		b.tagsOrder = append(b.tagsOrder, tag)
+	}
+}
+
+func (b *profileBuilder) addBundle(bundle string) {
+	if !b.Bundles.Has(bundle) {
+		b.Bundles.Add(bundle)
+		b.bundlesOrder = append(b.bundlesOrder, bundle)
+	}
+}
+
+func (b *profileBuilder) addBundleItem(item string) {
+	if !b.BundleItems.Has(item) {
+		b.BundleItems.Add(item)
+		b.bundleItemsOrder = append(b.bundleItemsOrder, item)
 	}
 }
 
@@ -701,6 +839,30 @@ func (b *profileBuilder) addHook(hooks *[]Hook, h Hook) {
 	if !b.seenHooks.Has(key) {
 		b.seenHooks.Add(key)
 		*hooks = append(*hooks, h)
+	}
+}
+
+// mergeMCP merges MCP config from source into the builder.
+// Later sources override earlier ones for the same server name.
+func (b *profileBuilder) mergeMCP(source MCPConfig) {
+	// Merge auto_register_scm (later wins)
+	if source.AutoRegisterSCM != nil {
+		b.MCP.AutoRegisterSCM = source.AutoRegisterSCM
+	}
+
+	// Merge unified servers
+	for name, server := range source.Servers {
+		b.MCP.Servers[name] = server
+	}
+
+	// Merge plugin-specific servers
+	for backend, servers := range source.Plugins {
+		if b.MCP.Plugins[backend] == nil {
+			b.MCP.Plugins[backend] = make(map[string]MCPServer)
+		}
+		for name, server := range servers {
+			b.MCP.Plugins[backend][name] = server
+		}
 	}
 }
 
@@ -747,10 +909,13 @@ func (b *profileBuilder) toProfile() *Profile {
 	return &Profile{
 		Description: b.Description,
 		Tags:        b.tagsOrder,
+		Bundles:     b.bundlesOrder,
+		BundleItems: b.bundleItemsOrder,
 		Fragments:   b.fragmentsOrder,
 		Generators:  b.generatorsOrder,
 		Variables:   b.Variables,
 		Hooks:       b.Hooks,
+		MCP:         b.MCP,
 	}
 }
 
@@ -800,6 +965,12 @@ func resolveProfileRecursive(profiles map[string]Profile, name string, visited c
 	for _, tag := range profile.Tags {
 		builder.addTag(tag)
 	}
+	for _, bundle := range profile.Bundles {
+		builder.addBundle(bundle)
+	}
+	for _, item := range profile.BundleItems {
+		builder.addBundleItem(item)
+	}
 	for _, frag := range profile.Fragments {
 		builder.addFragment(frag)
 	}
@@ -812,6 +983,9 @@ func resolveProfileRecursive(profiles map[string]Profile, name string, visited c
 
 	// Merge hooks (deduplicated by command+matcher)
 	builder.mergeHooks(profile.Hooks)
+
+	// Merge MCP config (later wins for same server names)
+	builder.mergeMCP(profile.MCP)
 
 	// Set description from the leaf profile (will be overwritten by each child)
 	builder.Description = profile.Description
@@ -829,5 +1003,88 @@ func DedupeStrings(items []string) []string {
 			result = append(result, item)
 		}
 	}
+	return result
+}
+
+// ResolveBundleMCPServers loads MCP servers from bundles referenced in the default profile.
+// It returns a map of server name to MCPServer configuration.
+func (c *Config) ResolveBundleMCPServers() map[string]MCPServer {
+	result := make(map[string]MCPServer)
+
+	// Get the default profile name
+	defaultProfile := c.Defaults.Profile
+	if defaultProfile == "" {
+		return result
+	}
+
+	// Get the base .scm directory
+	if len(c.SCMPaths) == 0 {
+		return result
+	}
+	scmDir := c.SCMPaths[0]
+
+	// Load the profile using profiles package
+	profileLoader := c.GetProfileLoader()
+	profile, err := profileLoader.Load(defaultProfile)
+	if err != nil {
+		return result
+	}
+
+	// Create bundle loader
+	bundleDirs := []string{filepath.Join(scmDir, BundlesDir)}
+	bundleLoader := bundles.NewLoader(bundleDirs, false)
+
+	// Process each bundle URL in the profile
+	for _, bundleRef := range profile.Bundles {
+		servers := loadMCPFromBundleRef(bundleRef, scmDir, bundleLoader)
+		for name, server := range servers {
+			result[name] = server
+		}
+	}
+
+	return result
+}
+
+// loadMCPFromBundleRef loads MCP servers from a bundle reference (URL or name).
+func loadMCPFromBundleRef(bundleRef string, scmDir string, loader *bundles.Loader) map[string]MCPServer {
+	result := make(map[string]MCPServer)
+
+	// Parse the reference to get the local path
+	ref, err := remote.ParseReference(bundleRef)
+	if err != nil {
+		// Try as a local bundle name
+		bundle, err := loader.Load(bundleRef)
+		if err != nil {
+			return result
+		}
+		return extractMCPFromBundle(bundle, bundleRef)
+	}
+
+	// Get the local path for this bundle
+	localPath := ref.LocalPath(scmDir, remote.ItemTypeBundle)
+
+	// Load the bundle from the local path
+	bundle, err := loader.LoadFile(localPath)
+	if err != nil {
+		return result
+	}
+
+	return extractMCPFromBundle(bundle, bundleRef)
+}
+
+// extractMCPFromBundle extracts MCP servers from a loaded bundle.
+func extractMCPFromBundle(bundle *bundles.Bundle, source string) map[string]MCPServer {
+	result := make(map[string]MCPServer)
+
+	for name, mcp := range bundle.MCP {
+		result[name] = MCPServer{
+			Command: mcp.Command,
+			Args:    mcp.Args,
+			Env:     mcp.Env,
+			Note:    mcp.Note,
+			SCM:     "bundle:" + source, // Mark as coming from a bundle
+		}
+	}
+
 	return result
 }

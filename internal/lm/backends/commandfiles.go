@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/benjaminabbitt/scm/internal/fragments"
+	"github.com/benjaminabbitt/scm/internal/bundles"
 )
 
 // SCMCommandsDir is the subdirectory within .claude/commands/ for SCM-generated commands.
@@ -17,7 +17,7 @@ const SCMCommandsDir = "scm"
 // WriteCommandFiles generates Claude Code slash command files from prompts.
 // It deletes the .claude/commands/scm/ directory and regenerates it fresh.
 // Only prompts with ClaudeCode.IsEnabled() == true are exported.
-func WriteCommandFiles(workDir string, prompts []*fragments.Fragment) error {
+func WriteCommandFiles(workDir string, prompts []*bundles.LoadedContent) error {
 	scmDir := filepath.Join(workDir, ".claude", "commands", SCMCommandsDir)
 
 	// Clean slate - remove and recreate
@@ -68,7 +68,7 @@ func WriteCommandFiles(workDir string, prompts []*fragments.Fragment) error {
 
 // TransformToClaudeCommand converts an SCM prompt to Claude Code command format.
 // It generates a markdown file with YAML frontmatter and transforms {{var}} to $N.
-func TransformToClaudeCommand(p *fragments.Fragment) string {
+func TransformToClaudeCommand(p *bundles.LoadedContent) string {
 	var buf bytes.Buffer
 	cc := p.Plugins.LM.ClaudeCode
 

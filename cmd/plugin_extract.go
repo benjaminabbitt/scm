@@ -22,17 +22,17 @@ These standalone plugins can be used for debugging, external deployment,
 or with other tools that support the gRPC plugin protocol.
 
 Examples:
-  scm plugin extract                     # Extract to ~/.scm/plugins/
+  scm plugin extract                     # Extract to .scm/plugins/
   scm plugin extract --output ./plugins  # Extract to ./plugins/`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Determine output directory
 		outputDir := pluginExtractOutput
 		if outputDir == "" {
-			home, err := os.UserHomeDir()
+			pwd, err := os.Getwd()
 			if err != nil {
-				return fmt.Errorf("failed to get home directory: %w", err)
+				return fmt.Errorf("failed to get working directory: %w", err)
 			}
-			outputDir = filepath.Join(home, ".scm", "plugins")
+			outputDir = filepath.Join(pwd, ".scm", "plugins")
 		}
 
 		// Create output directory
@@ -88,11 +88,11 @@ var pluginExtractBinaryCmd = &cobra.Command{
 
 		outputDir := pluginExtractOutput
 		if outputDir == "" {
-			home, err := os.UserHomeDir()
+			pwd, err := os.Getwd()
 			if err != nil {
-				return fmt.Errorf("failed to get home directory: %w", err)
+				return fmt.Errorf("failed to get working directory: %w", err)
 			}
-			outputDir = filepath.Join(home, ".scm", "plugins")
+			outputDir = filepath.Join(pwd, ".scm", "plugins")
 		}
 
 		if err := os.MkdirAll(outputDir, 0755); err != nil {
@@ -113,6 +113,6 @@ func init() {
 	pluginCmd.AddCommand(pluginExtractCmd)
 	pluginCmd.AddCommand(pluginExtractBinaryCmd)
 
-	pluginExtractCmd.Flags().StringVarP(&pluginExtractOutput, "output", "o", "", "Output directory (default: ~/.scm/plugins/)")
-	pluginExtractBinaryCmd.Flags().StringVarP(&pluginExtractOutput, "output", "o", "", "Output directory (default: ~/.scm/plugins/)")
+	pluginExtractCmd.Flags().StringVarP(&pluginExtractOutput, "output", "o", "", "Output directory (default: .scm/plugins/)")
+	pluginExtractBinaryCmd.Flags().StringVarP(&pluginExtractOutput, "output", "o", "", "Output directory (default: .scm/plugins/)")
 }

@@ -5,14 +5,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "scm hook inject-context",
-            "timeout": 60
-          },
-          {
-            "type": "command",
-            "command": "scm hook inject-context",
-            "timeout": 5,
-            "_scm": "23d85fc30428a539"
+            "command": "${CLAUDE_PROJECT_DIR}/.scm/bin/scm hook inject-context 65e45a551f4826a4",
+            "timeout": 60,
+            "_scm": "de31c28298f9bc42"
           }
         ]
       }

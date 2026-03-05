@@ -299,6 +299,30 @@ Feature: MCP server
     Then the exit code should be 0
     And the MCP response should contain "The language is Python"
 
+  Scenario: Assemble context with default profile
+    Given a fragment "default-frag" in the project with content:
+      """
+      tags:
+        - default
+      content: |
+        Default profile context.
+      """
+    And a config file with:
+      """
+      profiles:
+        default-profile:
+          default: true
+          description: Default
+          fragments:
+            - default-frag
+      """
+    When I send MCP tools/call "assemble_context" with:
+      """
+      {}
+      """
+    Then the exit code should be 0
+    And the MCP response should contain "Default profile context"
+
   # ============================================================================
   # Error Handling
   # ============================================================================
@@ -311,4 +335,16 @@ Feature: MCP server
     When I send MCP tools/call "unknown_tool"
     Then the exit code should be 0
     And the MCP response should have error containing "Unknown tool"
+
+  Scenario: Assemble context with nonexistent profile returns error
+    Given a config file with:
+      """
+      profiles: {}
+      """
+    When I send MCP tools/call "assemble_context" with:
+      """
+      {"profile": "nonexistent-profile"}
+      """
+    Then the exit code should be 0
+    And the MCP response should contain "unknown profile"
 

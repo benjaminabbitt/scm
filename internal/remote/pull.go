@@ -1,0 +1,641 @@
+package remote
+
+import (
+	"bufio"
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"golang.org/x/term"
+	"gopkg.in/yaml.v3"
+)
+
+// PullOptions configures pull behavior.
+type PullOptions struct {
+	// Force skips the confirmation prompt but still displays content.
+	Force bool
+
+	// LocalDir overrides the default .scm directory path.
+	LocalDir string
+
+	// ItemType specifies what type of item to pull.
+	ItemType ItemType
+
+	// Cascade pulls all dependencies (bundles referenced by profiles).
+	Cascade bool
+
+	// Stdout and Stdin for output and input (for testing).
+	Stdout io.Writer
+	Stdin  io.Reader
+}
+
+// PullResult contains the result of a pull operation.
+type PullResult struct {
+	// LocalPath is where the item was saved.
+	LocalPath string
+
+	// SHA is the commit SHA of the fetched content.
+	SHA string
+
+	// Overwritten indicates if an existing file was replaced.
+	Overwritten bool
+
+	// CascadePulled lists items pulled as dependencies (for profiles).
+	CascadePulled []string
+}
+
+// profileYAML is a minimal struct for parsing profile bundle references.
+type profileYAML struct {
+	Bundles []string `yaml:"bundles"`
+}
+
+// Puller handles pulling items from remotes.
+type Puller struct {
+	registry        *Registry
+	auth            AuthConfig
+	replaceManager  *ReplaceManager
+	vendorManager   *VendorManager
+	lockfileManager *LockfileManager
+}
+
+// NewPuller creates a new puller.
+func NewPuller(registry *Registry, auth AuthConfig) *Puller {
+	replaceManager, _ := NewReplaceManager("")
+	return &Puller{
+		registry:        registry,
+		auth:            auth,
+		replaceManager:  replaceManager,
+		vendorManager:   NewVendorManager(".scm"),
+		lockfileManager: NewLockfileManager(".scm"),
+	}
+}
+
+// Pull downloads an item from a remote with security review.
+func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*PullResult, error) {
+	if opts.Stdout == nil {
+		opts.Stdout = os.Stdout
+	}
+	if opts.Stdin == nil {
+		opts.Stdin = os.Stdin
+	}
+
+	// Parse reference
+	ref, err := ParseReference(refStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid reference: %w", err)
+	}
+
+	// Check for replace directive first
+	if p.replaceManager != nil {
+		if localPath, ok := p.replaceManager.Get(refStr); ok {
+			fmt.Fprintf(opts.Stdout, "Using local replace: %s → %s\n", refStr, localPath)
+			replacedContent, err := p.replaceManager.LoadReplaced(refStr)
+			if err != nil {
+				return nil, fmt.Errorf("failed to load replaced file: %w", err)
+			}
+			if err := p.writeContent(ref, opts, replacedContent, "local"); err != nil {
+				return nil, err
+			}
+			return &PullResult{
+				LocalPath:   localPath,
+				SHA:         "local",
+				Overwritten: false,
+			}, nil
+		}
+	}
+
+	// Check vendor mode
+	if p.vendorManager != nil && p.vendorManager.IsVendored() {
+		if p.vendorManager.HasVendored(opts.ItemType, ref) {
+			vendoredContent, err := p.vendorManager.GetVendored(opts.ItemType, ref)
+			if err != nil {
+				return nil, fmt.Errorf("failed to load vendored file: %w", err)
+			}
+			fmt.Fprintf(opts.Stdout, "Using vendored: %s (%d bytes)\n", refStr, len(vendoredContent))
+			return &PullResult{
+				LocalPath:   filepath.Join(p.vendorManager.VendorDir(), opts.ItemType.DirName(), ref.Remote, ref.Path+".yaml"),
+				SHA:         "vendored",
+				Overwritten: false,
+			}, nil
+		}
+	}
+
+	// Get remote URL and version - either from registry or from canonical URL
+	var repoURL, version string
+	var rem *Remote
+	var localName string // The local name to use for lockfile key
+
+	if ref.IsCanonical {
+		// Use URL from canonical reference
+		repoURL = ref.URL
+		version = ref.Version
+
+		// Auto-register the remote (or get existing one)
+		var err error
+		rem, err = p.registry.GetOrCreateByURL(repoURL, version)
+		if err != nil {
+			return nil, fmt.Errorf("failed to register remote: %w", err)
+		}
+
+		// Build local name: remoteName/path
+		localName = fmt.Sprintf("%s/%s", rem.Name, ref.Path)
+	} else {
+		// Look up remote in registry
+		var err error
+		rem, err = p.registry.Get(ref.Remote)
+		if err != nil {
+			return nil, err
+		}
+		repoURL = rem.URL
+		version = rem.Version
+
+		// Local name is the original reference
+		localName = fmt.Sprintf("%s/%s", ref.Remote, ref.Path)
+	}
+
+	// Create fetcher
+	fetcher, err := NewFetcher(repoURL, p.auth)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create fetcher: %w", err)
+	}
+
+	// Parse repo URL
+	owner, repo, err := ParseRepoURL(repoURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid remote URL: %w", err)
+	}
+
+	// Check for retracted version
+	retracted, reason, _ := CheckRetracted(ctx, fetcher, owner, repo, version, ref, opts.ItemType)
+	if retracted {
+		fmt.Fprintf(opts.Stdout, "\n⚠️  WARNING: This version has been retracted!\n")
+		fmt.Fprintf(opts.Stdout, "Reason: %s\n\n", reason)
+		if !opts.Force {
+			confirmed, err := promptConfirmation(opts.Stdout, opts.Stdin, "Continue anyway?")
+			if err != nil {
+				return nil, err
+			}
+			if !confirmed {
+				return nil, fmt.Errorf("installation cancelled: version retracted")
+			}
+		}
+	}
+
+	// Resolve ref to SHA - use ContentVersion for canonical URLs, GitRef for simple refs
+	gitRef := ref.EffectiveContentVersion()
+	requestedVersion := gitRef // Store what user requested for export reconstruction
+	if gitRef == "" {
+		gitRef, err = fetcher.GetDefaultBranch(ctx, owner, repo)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get default branch: %w", err)
+		}
+		requestedVersion = "" // User didn't specify a version
+	}
+
+	sha, err := fetcher.ResolveRef(ctx, owner, repo, gitRef)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve ref '%s': %w", gitRef, err)
+	}
+
+	// Build file path and fetch content
+	filePath := ref.BuildFilePath(opts.ItemType, version)
+	content, err := fetcher.FetchFile(ctx, owner, repo, filePath, sha)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch: %w", err)
+	}
+
+	// Require interactive terminal unless force
+	if !opts.Force && !isTerminal(opts.Stdin) {
+		return nil, fmt.Errorf("interactive terminal required for pull; use --force to skip confirmation")
+	}
+
+	// Always display security warning and content
+	shortSHA := sha
+	if len(sha) > 7 {
+		shortSHA = sha[:7]
+	}
+
+	// Parse content to get type-specific security warning
+	secure, err := ParseSecureContent(opts.ItemType, content)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse content: %w", err)
+	}
+
+	displaySecurityWarning(opts.Stdout, ref, rem, shortSHA, filePath, content, secure)
+
+	// Prompt for confirmation unless force
+	if !opts.Force {
+		confirmed, err := promptConfirmation(opts.Stdout, opts.Stdin, "Install this item?")
+		if err != nil {
+			return nil, fmt.Errorf("failed to read confirmation: %w", err)
+		}
+		if !confirmed {
+			return nil, fmt.Errorf("installation cancelled")
+		}
+	}
+
+	// Determine local path
+	baseDir := opts.LocalDir
+	if baseDir == "" {
+		baseDir = ".scm"
+	}
+
+	localPath := ref.LocalPath(baseDir, opts.ItemType)
+
+	// Transform profile content if needed (convert canonical URLs to local names)
+	if opts.ItemType == ItemTypeProfile {
+		content, err = p.transformProfileContent(content, opts.Stdout)
+		if err != nil {
+			return nil, fmt.Errorf("failed to transform profile: %w", err)
+		}
+	}
+
+	// Check for existing file
+	overwritten := false
+	if _, err := os.Stat(localPath); err == nil {
+		overwritten = true
+		// Show diff
+		existingContent, _ := os.ReadFile(localPath)
+		if string(existingContent) != string(content) {
+			fmt.Fprintln(opts.Stdout, "\n--- Existing file differs ---")
+			fmt.Fprintln(opts.Stdout, "Use a diff tool to compare if needed.")
+			if !opts.Force {
+				confirmed, err := promptConfirmation(opts.Stdout, opts.Stdin, "Overwrite existing file?")
+				if err != nil {
+					return nil, fmt.Errorf("failed to read confirmation: %w", err)
+				}
+				if !confirmed {
+					return nil, fmt.Errorf("overwrite cancelled")
+				}
+			}
+		}
+	}
+
+	// Write file
+	if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
+		return nil, fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	if err := os.WriteFile(localPath, content, 0644); err != nil {
+		return nil, fmt.Errorf("failed to write file: %w", err)
+	}
+
+	// Update lockfile with provenance (use local name as key)
+	if err := p.updateLockfile(localName, opts.ItemType, rem, sha, requestedVersion); err != nil {
+		// Log warning but don't fail the pull
+		fmt.Fprintf(opts.Stdout, "Warning: failed to update lockfile: %v\n", err)
+	}
+
+	result := &PullResult{
+		LocalPath:   localPath,
+		SHA:         sha,
+		Overwritten: overwritten,
+	}
+
+	// Cascade pull dependencies for profiles
+	if opts.Cascade && opts.ItemType == ItemTypeProfile {
+		cascaded, err := p.cascadePullProfile(ctx, content, opts)
+		if err != nil {
+			return result, fmt.Errorf("cascade pull failed: %w", err)
+		}
+		result.CascadePulled = cascaded
+	}
+
+	return result, nil
+}
+
+// cascadePullProfile parses a profile and pulls all referenced bundles.
+func (p *Puller) cascadePullProfile(ctx context.Context, profileContent []byte, opts PullOptions) ([]string, error) {
+	var profile profileYAML
+	if err := yaml.Unmarshal(profileContent, &profile); err != nil {
+		return nil, fmt.Errorf("failed to parse profile: %w", err)
+	}
+
+	if len(profile.Bundles) == 0 {
+		return nil, nil
+	}
+
+	fmt.Fprintf(opts.Stdout, "\nProfile references %d bundles:\n", len(profile.Bundles))
+	for _, bundle := range profile.Bundles {
+		fmt.Fprintf(opts.Stdout, "  - %s\n", bundle)
+	}
+	fmt.Fprintln(opts.Stdout)
+
+	var pulled []string
+	for _, bundleRef := range profile.Bundles {
+		// Check if already exists locally
+		ref, err := ParseReference(bundleRef)
+		if err != nil {
+			fmt.Fprintf(opts.Stdout, "Warning: invalid bundle reference %q: %v\n", bundleRef, err)
+			continue
+		}
+
+		baseDir := opts.LocalDir
+		if baseDir == "" {
+			baseDir = ".scm"
+		}
+		localPath := ref.LocalPath(baseDir, ItemTypeBundle)
+
+		if _, err := os.Stat(localPath); err == nil {
+			fmt.Fprintf(opts.Stdout, "  [cached] %s\n", bundleRef)
+			continue
+		}
+
+		// Pull the bundle
+		fmt.Fprintf(opts.Stdout, "  Pulling %s...\n", bundleRef)
+		bundleOpts := PullOptions{
+			Force:    opts.Force,
+			LocalDir: opts.LocalDir,
+			ItemType: ItemTypeBundle,
+			Cascade:  false, // Don't cascade further
+			Stdout:   opts.Stdout,
+			Stdin:    opts.Stdin,
+		}
+
+		_, err = p.Pull(ctx, bundleRef, bundleOpts)
+		if err != nil {
+			if strings.Contains(err.Error(), "cancelled") {
+				fmt.Fprintf(opts.Stdout, "    Skipped\n")
+				continue
+			}
+			return pulled, fmt.Errorf("failed to pull bundle %s: %w", bundleRef, err)
+		}
+
+		pulled = append(pulled, bundleRef)
+		fmt.Fprintf(opts.Stdout, "    Done\n")
+	}
+
+	return pulled, nil
+}
+
+// displaySecurityWarning shows the security warning and full content.
+func displaySecurityWarning(w io.Writer, ref *Reference, rem *Remote, sha, filePath string, content []byte, secure SecureContent) {
+	warning := secure.SecurityWarning()
+
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "┌─────────────────────────────────────────────────────────────────┐")
+	fmt.Fprintf(w, "│  ⚠️  WARNING: %-50s│\n", warning.Title)
+	fmt.Fprintln(w, "│                                                                 │")
+	fmt.Fprintf(w, "│  %-62s│\n", warning.Context)
+	fmt.Fprintln(w, "│  Malicious content can:                                         │")
+	for _, risk := range warning.Risks {
+		fmt.Fprintf(w, "│    • %-58s│\n", risk)
+	}
+	fmt.Fprintln(w, "│                                                                 │")
+	fmt.Fprintln(w, "│  REVIEW THE FULL CONTENT BELOW BEFORE ACCEPTING                │")
+	fmt.Fprintln(w, "└─────────────────────────────────────────────────────────────────┘")
+	fmt.Fprintln(w, "")
+
+	// Source info
+	fmt.Fprintf(w, "Source: %s @ %s\n", rem.URL, sha)
+	fmt.Fprintf(w, "Org:    %s\n", ref.Remote)
+	fmt.Fprintf(w, "Name:   %s\n", ref.Path)
+	fmt.Fprintf(w, "Path:   %s\n", filePath)
+
+	// Display note if present
+	if note := secure.Note(); note != "" {
+		// Truncate very long notes (max 4K chars)
+		const maxNoteLen = 4096
+		if len(note) > maxNoteLen {
+			note = note[:maxNoteLen-3] + "..."
+		}
+		fmt.Fprintln(w, "")
+		fmt.Fprintf(w, "Note: %s\n", note)
+	}
+
+	fmt.Fprintln(w, "")
+
+	// Content with pager for long content
+	contentStr := string(content)
+	lineCount := strings.Count(contentStr, "\n") + 1
+
+	fmt.Fprintln(w, "─────────────────── CONTENT START ───────────────────")
+
+	// Use pager for long content if terminal
+	if lineCount > 50 && isTerminalWriter(w) {
+		pager := os.Getenv("PAGER")
+		if pager == "" {
+			pager = "less"
+		}
+
+		cmd := exec.Command(pager)
+		cmd.Stdin = strings.NewReader(contentStr)
+		cmd.Stdout = w
+		cmd.Stderr = os.Stderr
+
+		if err := cmd.Run(); err != nil {
+			// Fallback to direct output
+			fmt.Fprint(w, contentStr)
+		}
+	} else {
+		fmt.Fprint(w, contentStr)
+	}
+
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "─────────────────── CONTENT END ─────────────────────")
+	fmt.Fprintln(w, "")
+}
+
+// promptConfirmation asks the user for yes/no confirmation.
+// Default is NO - user must explicitly type 'y' or 'yes'.
+func promptConfirmation(w io.Writer, r io.Reader, prompt string) (bool, error) {
+	fmt.Fprintf(w, "%s [y/N]: ", prompt)
+
+	scanner := bufio.NewScanner(r)
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return false, err
+		}
+		return false, nil // EOF = no
+	}
+
+	response := strings.TrimSpace(strings.ToLower(scanner.Text()))
+	return response == "y" || response == "yes", nil
+}
+
+// isTerminal checks if the reader is a terminal.
+func isTerminal(r io.Reader) bool {
+	if f, ok := r.(*os.File); ok {
+		return term.IsTerminal(int(f.Fd()))
+	}
+	return false
+}
+
+// isTerminalWriter checks if the writer is a terminal.
+func isTerminalWriter(w io.Writer) bool {
+	if f, ok := w.(*os.File); ok {
+		return term.IsTerminal(int(f.Fd()))
+	}
+	return false
+}
+
+// writeContent writes content to the local path (used for replace directive).
+func (p *Puller) writeContent(ref *Reference, opts PullOptions, content []byte, sha string) error {
+	baseDir := opts.LocalDir
+	if baseDir == "" {
+		baseDir = ".scm"
+	}
+
+	localPath := ref.LocalPath(baseDir, opts.ItemType)
+
+	if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	return os.WriteFile(localPath, content, 0644)
+}
+
+// updateLockfile records provenance in the lockfile.
+// localName is the local name format (remoteName/path) used as the key.
+// requestedVersion is the original tag/SHA user specified (empty if used HEAD).
+func (p *Puller) updateLockfile(localName string, itemType ItemType, remote *Remote, sha string, requestedVersion string) error {
+	lockfile, err := p.lockfileManager.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load lockfile: %w", err)
+	}
+
+	entry := LockEntry{
+		SHA:              sha,
+		URL:              remote.URL,
+		SCMVersion:       remote.Version,
+		RequestedVersion: requestedVersion,
+		FetchedAt:        time.Now().UTC(),
+	}
+
+	lockfile.AddEntry(itemType, localName, entry)
+
+	if err := p.lockfileManager.Save(lockfile); err != nil {
+		return fmt.Errorf("failed to save lockfile: %w", err)
+	}
+
+	return nil
+}
+
+// transformProfileContent converts canonical URLs in a profile to local names.
+// Updates the lockfile with mappings for the bundle references.
+func (p *Puller) transformProfileContent(content []byte, w io.Writer) ([]byte, error) {
+	// Parse the profile
+	var rawProfile map[string]interface{}
+	if err := yaml.Unmarshal(content, &rawProfile); err != nil {
+		return content, nil // Not valid YAML, return as-is
+	}
+
+	// Check if there are bundles to transform
+	bundlesRaw, ok := rawProfile["bundles"]
+	if !ok {
+		return content, nil // No bundles, return as-is
+	}
+
+	bundles, ok := bundlesRaw.([]interface{})
+	if !ok {
+		return content, nil // Not a list, return as-is
+	}
+
+	// Check if any bundles need transformation
+	needsTransform := false
+	for _, b := range bundles {
+		bundleStr, ok := b.(string)
+		if !ok {
+			continue
+		}
+		if strings.HasPrefix(bundleStr, "https://") ||
+			strings.HasPrefix(bundleStr, "http://") ||
+			strings.HasPrefix(bundleStr, "git@") {
+			needsTransform = true
+			break
+		}
+	}
+
+	if !needsTransform {
+		return content, nil
+	}
+
+	// Transform the bundles
+	fmt.Fprintf(w, "\nTransforming canonical URLs to local names...\n")
+
+	lockfile, err := p.lockfileManager.Load()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load lockfile: %w", err)
+	}
+
+	transformedBundles := make([]string, 0, len(bundles))
+
+	for _, b := range bundles {
+		bundleStr, ok := b.(string)
+		if !ok {
+			continue
+		}
+
+		// Check if this is a canonical URL
+		if !strings.HasPrefix(bundleStr, "https://") &&
+			!strings.HasPrefix(bundleStr, "http://") &&
+			!strings.HasPrefix(bundleStr, "git@") {
+			// Already local, keep as-is
+			transformedBundles = append(transformedBundles, bundleStr)
+			continue
+		}
+
+		// Parse the URL to extract components
+		// Handle item path suffix (e.g., #fragments/name)
+		var itemPath string
+		urlPart := bundleStr
+		if hashIdx := strings.Index(bundleStr, "#"); hashIdx != -1 {
+			urlPart = bundleStr[:hashIdx]
+			itemPath = bundleStr[hashIdx:]
+		}
+
+		parsed, err := ParseReference(urlPart)
+		if err != nil {
+			fmt.Fprintf(w, "  Warning: could not parse %q: %v\n", bundleStr, err)
+			transformedBundles = append(transformedBundles, bundleStr)
+			continue
+		}
+
+		// Get or create a local remote for this URL
+		localRemote, err := p.registry.GetOrCreateByURL(parsed.URL, parsed.Version)
+		if err != nil {
+			fmt.Fprintf(w, "  Warning: could not register remote for %q: %v\n", bundleStr, err)
+			transformedBundles = append(transformedBundles, bundleStr)
+			continue
+		}
+
+		// Build local name: remoteName/path
+		localName := fmt.Sprintf("%s/%s", localRemote.Name, parsed.Path)
+
+		// Update lockfile with mapping
+		entry := LockEntry{
+			URL:              parsed.URL,
+			SCMVersion:       parsed.Version,
+			RequestedVersion: parsed.ContentVersion,
+			// SHA will be filled in when the bundle is actually pulled
+		}
+		lockfile.AddEntry(ItemTypeBundle, localName, entry)
+
+		// Build local reference with item path if present
+		localRef := localName + itemPath
+
+		fmt.Fprintf(w, "  %s -> %s\n", bundleStr, localRef)
+		transformedBundles = append(transformedBundles, localRef)
+	}
+
+	// Save updated lockfile
+	if err := p.lockfileManager.Save(lockfile); err != nil {
+		return nil, fmt.Errorf("failed to save lockfile: %w", err)
+	}
+
+	// Update the profile with transformed bundles
+	rawProfile["bundles"] = transformedBundles
+
+	// Re-marshal the profile
+	transformed, err := yaml.Marshal(rawProfile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal transformed profile: %w", err)
+	}
+
+	return transformed, nil
+}

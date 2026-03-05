@@ -84,8 +84,12 @@
     },
     "defaults": {
       "type": "object",
-      "description": "Default settings. Note: To default fragments, add them to a profile and mark that profile as default.",
+      "description": "Default settings",
       "properties": {
+        "profile": {
+          "type": "string",
+          "description": "Default profile to load when no profile is specified"
+        },
         "generators": {
           "type": "array",
           "description": "Generators always run",
@@ -140,7 +144,7 @@
         "properties": {
           "default": {
             "type": "boolean",
-            "description": "If true, this profile is loaded by default when no profile is specified"
+            "description": "Whether this profile is a default profile (automatically loaded when no explicit fragments/tags/profile specified)"
           },
           "description": {
             "type": "string",

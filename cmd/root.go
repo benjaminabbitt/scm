@@ -58,19 +58,47 @@ func GetConfig() (*config.Config, error) {
 var rootCmd = &cobra.Command{
 	Use:   "scm",
 	Short: "Sophisticated Context Management",
-	Long:  `SCM is a CLI tool for managing context, fragments, and prompts for AI interactions.`,
+	Long: `SCM manages context for AI coding assistants.
+
+QUICK START
+  scm run -p developer "explain this code"    Run with a profile
+  scm run -f coding-standards "review"        Run with specific fragments
+  scm bundle list                             List installed bundles
+  scm profile list                            List available profiles
+
+CORE COMMANDS
+  run           Assemble context and run AI
+  bundle        Manage bundles (fragments, prompts, MCP servers)
+  profile       Manage profiles (named fragment collections)
+  mcp           Run as MCP server for AI tool integration
+
+REMOTE CONTENT
+  remote add    Register a remote source (GitHub/GitLab)
+  remote pull   Pull profiles or bundles from remotes
+  remote list   List configured remote sources
+
+CONFIGURATION
+  mcp-servers   Manage MCP server configurations
+  generator     Manage context generators
+  hook          Hook commands for AI tool integration
+  plugin        Manage AI backend plugins
+
+KEY CONCEPTS
+  Bundles     Versioned collections of fragments, prompts, and MCP configs
+  Fragments   Reusable context snippets (coding standards, patterns, etc.)
+  Profiles    Named sets of bundles/fragments with variables
+  Remotes     Git repositories for sharing content
+
+CONTENT REFERENCE SYNTAX
+  bundle-name                      Entire bundle (all fragments)
+  bundle-name#fragments/name       Specific fragment from bundle
+  bundle-name#prompts/name         Specific prompt from bundle
+  remote/bundle#fragments/name     Fragment from remote bundle
+
+Run 'scm <command> --help' for details on any command.`,
 }
 
 func Execute() {
-	// If no subcommand is provided, default to 'run'
-	if len(os.Args) == 1 {
-		// No args at all - default to run
-		os.Args = append(os.Args, "run")
-	} else if shouldDefaultToRun(os.Args[1:]) {
-		// Insert 'run' as the subcommand
-		os.Args = append([]string{os.Args[0], "run"}, os.Args[1:]...)
-	}
-
 	if err := rootCmd.Execute(); err != nil {
 		// Check for ExitError to preserve specific exit codes
 		if exitErr, ok := err.(*ExitError); ok {
@@ -81,35 +109,8 @@ func Execute() {
 	}
 }
 
-// shouldDefaultToRun determines if arguments should be treated as run command args
-func shouldDefaultToRun(args []string) bool {
-	if len(args) == 0 {
-		return false
-	}
-
-	first := args[0]
-
-	// Don't redirect help, version, completion, or Cobra's internal completion handler
-	if first == "help" || first == "--help" || first == "-h" ||
-		first == "version" || first == "--version" || first == "-v" ||
-		first == "completion" || first == "__complete" {
-		return false
-	}
-
-	// If it's a known subcommand, don't redirect
-	for _, cmd := range rootCmd.Commands() {
-		if cmd.Name() == first || cmd.HasAlias(first) {
-			return false
-		}
-	}
-
-	// Otherwise, treat as run command args (flags or prompt text)
-	return true
-}
-
 func init() {
 	// Config is loaded via internal/config.Load() which handles the hierarchy:
 	// 1. Project .scm/config.yaml
-	// 2. Home ~/.scm/config.yaml
-	// 3. Embedded resources
+	// 2. Embedded resources
 }

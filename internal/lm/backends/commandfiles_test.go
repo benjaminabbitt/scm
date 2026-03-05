@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/benjaminabbitt/scm/internal/fragments"
+	"github.com/benjaminabbitt/scm/internal/bundles"
 )
 
 func TestTransformMustacheToPositional(t *testing.T) {
@@ -63,18 +63,18 @@ func TestTransformToClaudeCommand(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		fragment *fragments.Fragment
+		fragment *bundles.LoadedContent
 		contains []string
 		excludes []string
 	}{
 		{
 			name: "full frontmatter",
-			fragment: &fragments.Fragment{
+			fragment: &bundles.LoadedContent{
 				Name:    "review",
 				Content: "Review {{file}} for {{focus}}",
-				Plugins: fragments.PluginsConfig{
-					LM: fragments.LMPluginConfig{
-						ClaudeCode: fragments.ClaudeCodeConfig{
+				Plugins: bundles.PluginsConfig{
+					LM: bundles.LMPluginConfig{
+						ClaudeCode: bundles.ClaudeCodeConfig{
 							Description:  "Code review",
 							ArgumentHint: "[file] [focus]",
 							AllowedTools: []string{"Read", "Grep"},
@@ -94,7 +94,7 @@ func TestTransformToClaudeCommand(t *testing.T) {
 		},
 		{
 			name: "no frontmatter",
-			fragment: &fragments.Fragment{
+			fragment: &bundles.LoadedContent{
 				Name:    "simple",
 				Content: "Just do the thing",
 			},
@@ -103,12 +103,12 @@ func TestTransformToClaudeCommand(t *testing.T) {
 		},
 		{
 			name: "partial frontmatter",
-			fragment: &fragments.Fragment{
+			fragment: &bundles.LoadedContent{
 				Name:    "partial",
 				Content: "Review the code",
-				Plugins: fragments.PluginsConfig{
-					LM: fragments.LMPluginConfig{
-						ClaudeCode: fragments.ClaudeCodeConfig{
+				Plugins: bundles.PluginsConfig{
+					LM: bundles.LMPluginConfig{
+						ClaudeCode: bundles.ClaudeCodeConfig{
 							Description: "Quick review",
 						},
 					},
@@ -127,12 +127,12 @@ func TestTransformToClaudeCommand(t *testing.T) {
 		},
 		{
 			name: "explicitly enabled",
-			fragment: &fragments.Fragment{
+			fragment: &bundles.LoadedContent{
 				Name:    "enabled",
 				Content: "Content",
-				Plugins: fragments.PluginsConfig{
-					LM: fragments.LMPluginConfig{
-						ClaudeCode: fragments.ClaudeCodeConfig{
+				Plugins: bundles.PluginsConfig{
+					LM: bundles.LMPluginConfig{
+						ClaudeCode: bundles.ClaudeCodeConfig{
 							Enabled:     boolPtr(true),
 							Description: "Enabled command",
 						},
@@ -167,22 +167,22 @@ func TestClaudeCodeConfigIsEnabled(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		config   fragments.ClaudeCodeConfig
+		config   bundles.ClaudeCodeConfig
 		expected bool
 	}{
 		{
 			name:     "nil enabled (default)",
-			config:   fragments.ClaudeCodeConfig{},
+			config:   bundles.ClaudeCodeConfig{},
 			expected: true,
 		},
 		{
 			name:     "explicitly true",
-			config:   fragments.ClaudeCodeConfig{Enabled: boolPtr(true)},
+			config:   bundles.ClaudeCodeConfig{Enabled: boolPtr(true)},
 			expected: true,
 		},
 		{
 			name:     "explicitly false",
-			config:   fragments.ClaudeCodeConfig{Enabled: boolPtr(false)},
+			config:   bundles.ClaudeCodeConfig{Enabled: boolPtr(false)},
 			expected: false,
 		},
 	}
@@ -203,13 +203,13 @@ func TestWriteCommandFiles(t *testing.T) {
 	// Create temp directory
 	tmpDir := t.TempDir()
 
-	prompts := []*fragments.Fragment{
+	prompts := []*bundles.LoadedContent{
 		{
 			Name:    "review",
 			Content: "Review {{file}}",
-			Plugins: fragments.PluginsConfig{
-				LM: fragments.LMPluginConfig{
-					ClaudeCode: fragments.ClaudeCodeConfig{
+			Plugins: bundles.PluginsConfig{
+				LM: bundles.LMPluginConfig{
+					ClaudeCode: bundles.ClaudeCodeConfig{
 						Description: "Code review",
 					},
 				},
@@ -218,9 +218,9 @@ func TestWriteCommandFiles(t *testing.T) {
 		{
 			Name:    "disabled",
 			Content: "This should not be exported",
-			Plugins: fragments.PluginsConfig{
-				LM: fragments.LMPluginConfig{
-					ClaudeCode: fragments.ClaudeCodeConfig{
+			Plugins: bundles.PluginsConfig{
+				LM: bundles.LMPluginConfig{
+					ClaudeCode: bundles.ClaudeCodeConfig{
 						Enabled: boolPtr(false),
 					},
 				},
@@ -279,7 +279,7 @@ func TestWriteCommandFilesCleanup(t *testing.T) {
 	os.WriteFile(stalePath, []byte("stale content"), 0644)
 
 	// Write new commands (empty list - should still clean up)
-	prompts := []*fragments.Fragment{
+	prompts := []*bundles.LoadedContent{
 		{
 			Name:    "new",
 			Content: "New content",

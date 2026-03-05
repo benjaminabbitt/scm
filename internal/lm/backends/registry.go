@@ -2,12 +2,7 @@ package backends
 
 import (
 	"github.com/benjaminabbitt/scm/internal/config"
-	pb "github.com/benjaminabbitt/scm/internal/lm/grpc"
 )
-
-// Backend is the interface that all AI backend implementations must satisfy.
-// This matches the grpc.Backend interface.
-type Backend = pb.Backend
 
 // Configurable is an interface for backends that can be configured with plugin settings.
 type Configurable interface {

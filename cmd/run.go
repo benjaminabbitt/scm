@@ -5,15 +5,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
+	"github.com/cbroglie/mustache"
 	"github.com/spf13/cobra"
 
+	"github.com/benjaminabbitt/scm/internal/bundles"
 	"github.com/benjaminabbitt/scm/internal/config"
-	"github.com/benjaminabbitt/scm/internal/fragments"
 	"github.com/benjaminabbitt/scm/internal/gitutil"
 	"github.com/benjaminabbitt/scm/internal/lm/backends"
 	pb "github.com/benjaminabbitt/scm/internal/lm/grpc"
+	"github.com/benjaminabbitt/scm/internal/profiles"
 )
 
 var (
@@ -36,8 +39,7 @@ var runCmd = &cobra.Command{
 
 Fragments are loaded from a single source (first found):
   1. <git-root>/.scm/context-fragments/ (project)
-  2. ~/.scm/context-fragments/ (home)
-  3. Embedded resources (fallback)
+  2. Embedded resources (fallback)
 
 Use --profile/-p to load a predefined set of fragments, variables, and generators.
 Use --tag/-t to include all fragments with a specific tag.
@@ -63,16 +65,10 @@ Examples:
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		// Create fragment loader with appropriate source
-		loaderOpts := []fragments.LoaderOption{
-			fragments.WithSuppressWarnings(runSuppressWarnings),
-			fragments.WithPreferDistilled(cfg.Defaults.ShouldUseDistilled()),
-			fragments.WithFailOnMissing(true),
-		}
-		if cfg.IsEmbedded() {
-			loaderOpts = append(loaderOpts, fragments.WithFS(cfg.GetFragmentFS()))
-		}
-		loader := fragments.NewLoader(cfg.GetFragmentDirs(), loaderOpts...)
+		// Create bundle loader with legacy fragment and prompt support
+		bundleLoader := bundles.NewLoader(cfg.GetBundleDirs(), cfg.Defaults.ShouldUseDistilled()).
+			WithLegacyDirs(cfg.GetFragmentDirs()).
+			WithLegacyPromptDirs(cfg.GetPromptDirs())
 
 		// Determine which plugin to use
 		pluginName := runPlugin
@@ -87,7 +83,6 @@ Examples:
 
 		// Get plugin configuration from config
 		pluginCfg := cfg.LM.Plugins[pluginName]
-		_ = pluginCfg // Will be used when we configure the backend
 
 		// Build the prompt - from saved prompt, flag, or remaining args
 		// Empty prompt is allowed (starts interactive mode)
@@ -103,10 +98,10 @@ Examples:
 			prompt = strings.Join(args, " ")
 		}
 
-		// Collect fragments and variables from profile + flags
-		var allFragments []string
-		profileVars := make(map[string]string)
+		// Collect content references from profile + flags
+		var allRefs []string
 		var generators []string
+		profileVars := make(map[string]string)
 
 		// Determine which profiles to use: explicit flag > default from config
 		var profileNames []string
@@ -118,50 +113,111 @@ Examples:
 			generators = append(generators, cfg.Defaults.Generators...)
 		}
 
+		// Create profile loader for .scm/profiles/ directory
+		profileDirs := profiles.GetProfileDirs(cfg.SCMPaths)
+		profileLoader := profiles.NewLoader(profileDirs)
+
 		// Process all profiles (supports multiple default profiles)
 		for _, profileName := range profileNames {
-			// Resolve profile with inheritance
-			profile, err := config.ResolveProfile(cfg.Profiles, profileName)
-			if err != nil {
-				return fmt.Errorf("failed to resolve profile %q: %w", profileName, err)
+			var profileTags []string
+			var profileBundles []string
+			var profileGenerators []string
+
+			// First try to load from .scm/profiles/ directory
+			if fileProfile, err := profileLoader.Load(profileName); err == nil {
+				// Profile found in .scm/profiles/
+				profileTags = fileProfile.Tags
+				profileBundles = fileProfile.Bundles
+				profileGenerators = fileProfile.Generators
+				for k, v := range fileProfile.Variables {
+					profileVars[k] = v
+				}
+			} else {
+				// Fall back to config.yaml profiles
+				configProfile, err := config.ResolveProfile(cfg.Profiles, profileName)
+				if err != nil {
+					return fmt.Errorf("failed to resolve profile %q: %w", profileName, err)
+				}
+
+				profileTags = configProfile.Tags
+				profileBundles = append(configProfile.Bundles, configProfile.BundleItems...)
+				// Also include legacy fragments field
+				for _, frag := range configProfile.Fragments {
+					profileBundles = append(profileBundles, frag)
+				}
+				profileGenerators = configProfile.Generators
+
+				// Collect variables from profile
+				for k, v := range configProfile.Variables {
+					profileVars[k] = v
+				}
 			}
 
 			// Include fragments matching profile tags
-			if len(profile.Tags) > 0 {
-				taggedInfos, err := loader.ListByTags(profile.Tags)
+			if len(profileTags) > 0 {
+				taggedInfos, err := bundleLoader.ListByTags(profileTags)
 				if err != nil {
 					return fmt.Errorf("failed to list fragments by profile tags: %w", err)
 				}
 				for _, info := range taggedInfos {
-					allFragments = append(allFragments, info.Name)
+					if info.Bundle != "" {
+						// Bundle fragment - use bundle#fragments/name syntax
+						allRefs = append(allRefs, fmt.Sprintf("%s#fragments/%s", info.Bundle, info.Name))
+					} else {
+						// Legacy fragment - use simple name
+						allRefs = append(allRefs, info.Name)
+					}
 				}
 			}
 
-			// Include explicit fragments
-			allFragments = append(allFragments, profile.Fragments...)
-			for k, v := range profile.Variables {
-				profileVars[k] = v
+			// Process bundle references (already in correct format)
+			for _, ref := range profileBundles {
+				contentRef := profiles.ParseContentRef(ref)
+				if contentRef.IsFragment() {
+					// Specific fragment reference (bundle#fragments/name) - use as-is
+					allRefs = append(allRefs, ref)
+				} else if contentRef.IsBundle() {
+					// Could be a full bundle or a simple fragment name
+					// Try to load as bundle first, using local path for URLs
+					bundlePath := contentRef.LocalBundlePath()
+					bundle, err := bundleLoader.Load(bundlePath)
+					if err == nil {
+						// It's a bundle - expand to all fragments
+						// Use the full bundle path for fragment references so they can be found
+						for fragName := range bundle.Fragments {
+							allRefs = append(allRefs, fmt.Sprintf("%s#fragments/%s", bundlePath, fragName))
+						}
+					} else {
+						// Bundle not found - treat as simple fragment name
+						// GetFragment will search bundles and legacy dirs
+						allRefs = append(allRefs, ref)
+					}
+				}
 			}
-			generators = append(generators, profile.Generators...)
+
+			generators = append(generators, profileGenerators...)
 		}
 
-		// Append additional fragments from -f flags
-		allFragments = append(allFragments, runFragments...)
+		// Append additional refs from -f flags (support # syntax)
+		allRefs = append(allRefs, runFragments...)
 
 		// Append fragments matching specified tags
 		if len(runTags) > 0 {
-			taggedInfos, err := loader.ListByTags(runTags)
+			taggedInfos, err := bundleLoader.ListByTags(runTags)
 			if err != nil {
 				return fmt.Errorf("failed to list fragments by tags: %w", err)
 			}
 			for _, info := range taggedInfos {
-				allFragments = append(allFragments, info.Name)
+				if info.Bundle != "" {
+					allRefs = append(allRefs, fmt.Sprintf("%s#fragments/%s", info.Bundle, info.Name))
+				} else {
+					allRefs = append(allRefs, info.Name)
+				}
 			}
 		}
 
-		// Dedupe fragments and generators before processing.
-		// This handles the diamond problem when multiple profiles share common fragments.
-		allFragments = config.DedupeStrings(allFragments)
+		// Dedupe refs and generators
+		allRefs = config.DedupeStrings(allRefs)
 		generators = config.DedupeStrings(generators)
 
 		// Warn function for reporting non-fatal issues
@@ -171,50 +227,40 @@ Examples:
 			}
 		}
 
-		// Run generators and collect their fragments
-		var generatorFrags []*fragments.Fragment
-		if len(generators) > 0 {
-			generatorFrags, err = RunGenerators(cfg, generators, runVerbosity, warnFunc)
-			if err != nil {
-				return fmt.Errorf("failed to run generators: %w", err)
-			}
-			// Merge generator exports into profile vars (generators take precedence)
-			for _, frag := range generatorFrags {
-				for k, v := range frag.Exports {
-					profileVars[k] = v
-				}
-			}
-		}
-
-		// Load fragments with metadata
-		var loadedFrags []*fragments.LoadedFragment
-		if len(allFragments) > 0 {
-			loadedFrags, err = loader.LoadMultipleAsFragments(allFragments, profileVars)
-			if err != nil {
-				return fmt.Errorf("failed to load fragments: %w", err)
-			}
-		}
-
-		// Convert loaded fragments to proto format
+		// Load all referenced content from bundles
 		var protoFragments []*pb.Fragment
-		for _, lf := range loadedFrags {
+		for _, ref := range allRefs {
+			content, err := bundleLoader.GetFragment(ref)
+			if err != nil {
+				return fmt.Errorf("fragment not found: %s", ref)
+			}
+			// Apply variable substitution
+			renderedContent := substituteVariables(content.Content, profileVars, warnFunc)
 			protoFragments = append(protoFragments, &pb.Fragment{
-				Name:        lf.Name,
-				Version:     lf.Version,
-				Tags:        lf.Tags,
-				Content:     lf.Content,
-				IsDistilled: lf.IsDistilled,
-				DistilledBy: lf.DistilledBy,
+				Name:        content.Name,
+				Version:     content.Version,
+				Tags:        content.Tags,
+				Content:     renderedContent,
+				IsDistilled: content.IsDistilled,
+				DistilledBy: content.DistilledBy,
 			})
 		}
 
+		// Run generators and collect their content
+		var generatorContent []*bundles.LoadedContent
+		if len(generators) > 0 {
+			generatorContent, err = RunGenerators(cfg, generators, runVerbosity, warnFunc)
+			if err != nil {
+				return fmt.Errorf("failed to run generators: %w", err)
+			}
+		}
+
 		// Append generator outputs as fragments
-		for _, frag := range generatorFrags {
-			if frag.Content != "" {
+		for _, content := range generatorContent {
+			if content.Content != "" {
 				protoFragments = append(protoFragments, &pb.Fragment{
-					Name:    frag.Name,
-					Tags:    frag.Tags,
-					Content: frag.Content,
+					Name:    content.Name,
+					Content: content.Content,
 				})
 			}
 		}
@@ -284,9 +330,8 @@ Examples:
 				fmt.Println("(interactive mode)")
 			}
 			// Show context file that would be written
-			fmt.Println("\n=== Session Context ===")
-			contextFilePath := filepath.Join(workDir, backends.SCMSessionsDir, "<session-id>.md")
-			fmt.Printf("Would write to: %s\n", contextFilePath)
+			fmt.Println("\n=== Context File ===")
+			fmt.Printf("Would write to: %s/[hash].md\n", filepath.Join(workDir, backends.SCMContextSubdir))
 			if len(protoFragments) > 0 {
 				var parts []string
 				for _, f := range protoFragments {
@@ -352,4 +397,59 @@ func init() {
 	_ = runCmd.RegisterFlagCompletionFunc("tag", completeTagNames)
 	_ = runCmd.RegisterFlagCompletionFunc("profile", completeProfileNames)
 	_ = runCmd.RegisterFlagCompletionFunc("run-prompt", completePromptNames)
+}
+
+// LoadPrompt loads a saved prompt from bundles by name.
+func LoadPrompt(cfg *config.Config, name string) (string, error) {
+	loader := bundles.NewLoader(cfg.GetBundleDirs(), cfg.Defaults.ShouldUseDistilled()).
+		WithLegacyDirs(cfg.GetFragmentDirs()).
+		WithLegacyPromptDirs(cfg.GetPromptDirs())
+	prompt, err := loader.GetPrompt(name)
+	if err != nil {
+		return "", err
+	}
+	return prompt.Content, nil
+}
+
+// substituteVariables applies mustache templating to content using the provided variables.
+// It warns about undefined variables referenced in the template.
+// Undefined variables are replaced with empty strings.
+func substituteVariables(content string, vars map[string]string, warnFunc func(string)) string {
+	// Find all variable references in the template
+	varPattern := regexp.MustCompile(`\{\{\s*([^}#/!>\s][^}]*?)\s*\}\}`)
+	matches := varPattern.FindAllStringSubmatch(content, -1)
+
+	// Check for undefined variables
+	seen := make(map[string]bool)
+	for _, match := range matches {
+		if len(match) > 1 {
+			varName := strings.TrimSpace(match[1])
+			// Skip mustache section markers
+			if strings.HasPrefix(varName, "#") ||
+				strings.HasPrefix(varName, "/") ||
+				strings.HasPrefix(varName, "!") ||
+				strings.HasPrefix(varName, ">") {
+				continue
+			}
+			if !seen[varName] {
+				seen[varName] = true
+				if _, exists := vars[varName]; !exists {
+					warnFunc(fmt.Sprintf("undefined variable: {{%s}}", varName))
+				}
+			}
+		}
+	}
+
+	data := make(map[string]interface{})
+	for k, v := range vars {
+		data[k] = v
+	}
+
+	rendered, err := mustache.Render(content, data)
+	if err != nil {
+		warnFunc(fmt.Sprintf("failed to apply template: %v", err))
+		return content
+	}
+
+	return rendered
 }

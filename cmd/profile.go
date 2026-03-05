@@ -2,22 +2,24 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 
-	"github.com/benjaminabbitt/scm/internal/config"
+	"github.com/benjaminabbitt/scm/internal/profiles"
 )
 
 var profileCmd = &cobra.Command{
 	Use:   "profile",
 	Short: "Manage profiles (named fragment collections)",
-	Long: `Manage profiles - named collections of context fragments.
+	Long: `Manage profiles - named collections of context fragments, bundles, and configuration.
 
-Profiles allow you to quickly switch between different sets of context
-fragments without specifying them individually each time.`,
+Profiles are stored as YAML files in .scm/profiles/<name>.yaml and allow you to
+quickly switch between different sets of context without specifying them individually.`,
 }
 
 var profileListCmd = &cobra.Command{
@@ -30,34 +32,51 @@ var profileListCmd = &cobra.Command{
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		if len(cfg.Profiles) == 0 {
+		profileDirs := profiles.GetProfileDirs(cfg.SCMPaths)
+		if len(profileDirs) == 0 {
+			fmt.Println("No profiles directory found.")
+			fmt.Println("Create one with: mkdir -p .scm/profiles")
+			return nil
+		}
+
+		loader := profiles.NewLoader(profileDirs)
+		profileList, err := loader.List()
+		if err != nil {
+			return fmt.Errorf("failed to list profiles: %w", err)
+		}
+
+		if len(profileList) == 0 {
 			fmt.Println("No profiles defined.")
 			fmt.Println("Use 'scm profile add <name> -f <fragments...>' to create one.")
 			return nil
 		}
 
-		// Sort profile names
-		names := make([]string, 0, len(cfg.Profiles))
-		for name := range cfg.Profiles {
-			names = append(names, name)
-		}
-		sort.Strings(names)
+		// Get default profile from config
+		defaultProfile := cfg.Defaults.Profile
 
-		fmt.Println("Profiles:")
-		for _, name := range names {
-			p := cfg.Profiles[name]
-			fmt.Printf("  %s\n", name)
+		fmt.Printf("Profiles (%d):\n", len(profileList))
+		for _, p := range profileList {
+			fmt.Printf("  %s", p.Name)
+			if p.Name == defaultProfile {
+				fmt.Printf(" (default)")
+			}
+			fmt.Println()
 			if p.Description != "" {
-				fmt.Printf("    Description: %s\n", p.Description)
+				fmt.Printf("    %s\n", p.Description)
 			}
+
+			var parts []string
 			if len(p.Parents) > 0 {
-				fmt.Printf("    Parents: %s\n", strings.Join(p.Parents, ", "))
+				parts = append(parts, fmt.Sprintf("parents: %s", strings.Join(p.Parents, ", ")))
 			}
-			if len(p.Fragments) > 0 {
-				fmt.Printf("    Fragments: %s\n", strings.Join(p.Fragments, ", "))
+			if len(p.Bundles) > 0 {
+				parts = append(parts, fmt.Sprintf("%d bundles", len(p.Bundles)))
 			}
 			if len(p.Generators) > 0 {
-				fmt.Printf("    Generators: %s\n", strings.Join(p.Generators, ", "))
+				parts = append(parts, fmt.Sprintf("%d generators", len(p.Generators)))
+			}
+			if len(parts) > 0 {
+				fmt.Printf("    %s\n", strings.Join(parts, ", "))
 			}
 		}
 
@@ -67,7 +86,7 @@ var profileListCmd = &cobra.Command{
 
 var (
 	profileAddParents     []string
-	profileAddFragments   []string
+	profileAddBundles     []string
 	profileAddGenerators  []string
 	profileAddDescription string
 )
@@ -75,17 +94,22 @@ var (
 var profileAddCmd = &cobra.Command{
 	Use:   "add <name>",
 	Short: "Add a new profile",
-	Long: `Add a new profile with the specified fragments, generators, and/or parents.
+	Long: `Add a new profile with bundles, generators, and/or parents.
+
+Bundle references use full URLs:
+  https://github.com/user/repo@v1/bundles/name    # Bundle from remote
 
 Example:
-  scm profile add developer -f coding-standards -f go-patterns -d "Standard dev context"
-  scm profile add go-developer --parent developer -t golang -d "Go development context"`,
+  scm profile add developer -b https://github.com/user/scm@v1/bundles/go-development -d "Standard dev context"`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
+		if name == "help" {
+			return cmd.Help()
+		}
 
-		if len(profileAddParents) == 0 && len(profileAddFragments) == 0 && len(profileAddGenerators) == 0 {
-			return fmt.Errorf("at least one parent (--parent), fragment (-f), or generator (-g) is required")
+		if len(profileAddParents) == 0 && len(profileAddBundles) == 0 && len(profileAddGenerators) == 0 {
+			return fmt.Errorf("at least one parent (--parent), bundle (-b), or generator (-g) is required")
 		}
 
 		cfg, err := GetConfig()
@@ -93,39 +117,53 @@ Example:
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		if _, exists := cfg.Profiles[name]; exists {
+		if cfg.IsEmbedded() {
+			return fmt.Errorf("no .scm directory found; run 'scm init --local' first")
+		}
+
+		profileDirs := profiles.GetProfileDirs(cfg.SCMPaths)
+		if len(profileDirs) == 0 {
+			// Create the directory
+			profileDirs = []string{filepath.Join(cfg.SCMPaths[0], "profiles")}
+		}
+
+		loader := profiles.NewLoader(profileDirs)
+
+		if loader.Exists(name) {
 			return fmt.Errorf("profile %q already exists (use 'profile remove' first)", name)
 		}
 
 		// Validate parent profiles exist
 		for _, parent := range profileAddParents {
-			if _, exists := cfg.Profiles[parent]; !exists {
+			if !loader.Exists(parent) {
 				return fmt.Errorf("parent profile %q not found", parent)
 			}
 		}
 
-		cfg.Profiles[name] = config.Profile{
+		profile := &profiles.Profile{
+			Name:        name,
 			Description: profileAddDescription,
 			Parents:     profileAddParents,
-			Fragments:   profileAddFragments,
+			Bundles:     profileAddBundles,
 			Generators:  profileAddGenerators,
 		}
 
-		if err := cfg.Save(); err != nil {
-			return fmt.Errorf("failed to save config: %w", err)
+		if err := loader.Save(profile); err != nil {
+			return fmt.Errorf("failed to save profile: %w", err)
 		}
 
 		var parts []string
 		if len(profileAddParents) > 0 {
 			parts = append(parts, fmt.Sprintf("parents: %s", strings.Join(profileAddParents, ", ")))
 		}
-		if len(profileAddFragments) > 0 {
-			parts = append(parts, fmt.Sprintf("fragments: %s", strings.Join(profileAddFragments, ", ")))
+		if len(profileAddBundles) > 0 {
+			parts = append(parts, fmt.Sprintf("bundles: %s", strings.Join(profileAddBundles, ", ")))
 		}
 		if len(profileAddGenerators) > 0 {
 			parts = append(parts, fmt.Sprintf("generators: %s", strings.Join(profileAddGenerators, ", ")))
 		}
-		fmt.Printf("Added profile %q with %s\n", name, strings.Join(parts, "; "))
+		fmt.Printf("Created profile %q with %s\n", name, strings.Join(parts, "; "))
+		fmt.Printf("Saved to: %s\n", profile.Path)
 		return nil
 	},
 }
@@ -137,20 +175,24 @@ var profileRemoveCmd = &cobra.Command{
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
+		if name == "help" {
+			return cmd.Help()
+		}
 
 		cfg, err := GetConfig()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		if _, exists := cfg.Profiles[name]; !exists {
-			return fmt.Errorf("profile %q not found", name)
+		profileDirs := profiles.GetProfileDirs(cfg.SCMPaths)
+		if len(profileDirs) == 0 {
+			return fmt.Errorf("profile not found: no profiles directory")
 		}
 
-		delete(cfg.Profiles, name)
+		loader := profiles.NewLoader(profileDirs)
 
-		if err := cfg.Save(); err != nil {
-			return fmt.Errorf("failed to save config: %w", err)
+		if err := loader.Delete(name); err != nil {
+			return fmt.Errorf("failed to remove profile: %w", err)
 		}
 
 		fmt.Printf("Removed profile %q\n", name)
@@ -164,18 +206,31 @@ var profileShowCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
+		if name == "help" {
+			return cmd.Help()
+		}
 
 		cfg, err := GetConfig()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		p, exists := cfg.Profiles[name]
-		if !exists {
+		profileDirs := profiles.GetProfileDirs(cfg.SCMPaths)
+		if len(profileDirs) == 0 {
+			return fmt.Errorf("profile not found: no profiles directory")
+		}
+
+		loader := profiles.NewLoader(profileDirs)
+		p, err := loader.Load(name)
+		if err != nil {
 			return fmt.Errorf("profile %q not found", name)
 		}
 
-		fmt.Printf("Profile: %s\n", name)
+		fmt.Printf("Profile: %s\n", p.Name)
+		fmt.Printf("Path: %s\n", p.Path)
+		if p.Name == cfg.Defaults.Profile {
+			fmt.Println("Default: yes")
+		}
 		if p.Description != "" {
 			fmt.Printf("Description: %s\n", p.Description)
 		}
@@ -185,10 +240,16 @@ var profileShowCmd = &cobra.Command{
 				fmt.Printf("  - %s\n", parent)
 			}
 		}
-		if len(p.Fragments) > 0 {
-			fmt.Println("Fragments:")
-			for _, f := range p.Fragments {
-				fmt.Printf("  - %s\n", f)
+		if len(p.Bundles) > 0 {
+			fmt.Println("Bundles:")
+			for _, b := range p.Bundles {
+				fmt.Printf("  - %s\n", b)
+			}
+		}
+		if len(p.Tags) > 0 {
+			fmt.Println("Tags:")
+			for _, t := range p.Tags {
+				fmt.Printf("  - %s\n", t)
 			}
 		}
 		if len(p.Generators) > 0 {
@@ -211,27 +272,32 @@ var profileShowCmd = &cobra.Command{
 var profileUpdateCmd = &cobra.Command{
 	Use:   "update <name>",
 	Short: "Update a profile",
-	Long: `Update an existing profile by adding or removing parents, fragments, or generators.
+	Long: `Update an existing profile by adding or removing items.
 
 Examples:
-  scm profile update go-developer --add-parent developer
-  scm profile update go-developer --remove-parent base
-  scm profile update developer --add-fragment error-handling
-  scm profile update developer --remove-fragment old-patterns
-  scm profile update developer --add-generator my-generator
-  scm profile update developer --remove-generator old-gen
+  scm profile update go-developer --add-parent https://github.com/user/scm@v1/profiles/developer
+  scm profile update developer --add-bundle https://github.com/user/scm@v1/bundles/go-development
   scm profile update developer -d "New description"`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
+		if name == "help" {
+			return cmd.Help()
+		}
 
 		cfg, err := GetConfig()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		p, exists := cfg.Profiles[name]
-		if !exists {
+		profileDirs := profiles.GetProfileDirs(cfg.SCMPaths)
+		if len(profileDirs) == 0 {
+			return fmt.Errorf("profile not found: no profiles directory")
+		}
+
+		loader := profiles.NewLoader(profileDirs)
+		p, err := loader.Load(name)
+		if err != nil {
 			return fmt.Errorf("profile %q not found", name)
 		}
 
@@ -245,10 +311,6 @@ Examples:
 
 		// Add parents
 		for _, parent := range profileUpdateAddParents {
-			// Validate parent exists
-			if _, exists := cfg.Profiles[parent]; !exists {
-				return fmt.Errorf("parent profile %q not found", parent)
-			}
 			if !slices.Contains(p.Parents, parent) {
 				p.Parents = append(p.Parents, parent)
 				fmt.Printf("Added parent: %s\n", parent)
@@ -269,25 +331,25 @@ Examples:
 			}
 		}
 
-		// Add fragments
-		for _, f := range profileUpdateAddFragments {
-			if !slices.Contains(p.Fragments, f) {
-				p.Fragments = append(p.Fragments, f)
-				fmt.Printf("Added fragment: %s\n", f)
+		// Add bundles
+		for _, b := range profileUpdateAddBundles {
+			if !slices.Contains(p.Bundles, b) {
+				p.Bundles = append(p.Bundles, b)
+				fmt.Printf("Added bundle: %s\n", b)
 				modified = true
 			} else {
-				fmt.Printf("Fragment already present: %s\n", f)
+				fmt.Printf("Bundle already present: %s\n", b)
 			}
 		}
 
-		// Remove fragments
-		for _, f := range profileUpdateRemoveFragments {
-			if idx := slices.Index(p.Fragments, f); idx >= 0 {
-				p.Fragments = slices.Delete(p.Fragments, idx, idx+1)
-				fmt.Printf("Removed fragment: %s\n", f)
+		// Remove bundles
+		for _, b := range profileUpdateRemoveBundles {
+			if idx := slices.Index(p.Bundles, b); idx >= 0 {
+				p.Bundles = slices.Delete(p.Bundles, idx, idx+1)
+				fmt.Printf("Removed bundle: %s\n", b)
 				modified = true
 			} else {
-				fmt.Printf("Fragment not found: %s\n", f)
+				fmt.Printf("Bundle not found: %s\n", b)
 			}
 		}
 
@@ -318,9 +380,8 @@ Examples:
 			return nil
 		}
 
-		cfg.Profiles[name] = p
-		if err := cfg.Save(); err != nil {
-			return fmt.Errorf("failed to save config: %w", err)
+		if err := loader.Save(p); err != nil {
+			return fmt.Errorf("failed to save profile: %w", err)
 		}
 
 		fmt.Printf("Updated profile %q\n", name)
@@ -331,12 +392,129 @@ Examples:
 var (
 	profileUpdateAddParents       []string
 	profileUpdateRemoveParents    []string
-	profileUpdateAddFragments     []string
-	profileUpdateRemoveFragments  []string
+	profileUpdateAddBundles       []string
+	profileUpdateRemoveBundles    []string
 	profileUpdateAddGenerators    []string
 	profileUpdateRemoveGenerators []string
 	profileUpdateDescription      string
 )
+
+var profileExportCmd = &cobra.Command{
+	Use:   "export <name> <dest-dir>",
+	Short: "Export a profile to a directory",
+	Long: `Export a profile from .scm/profiles to an arbitrary directory.
+
+Useful for publishing profiles to a shared repository like scm-github.
+
+Examples:
+  scm profile export architect ../scm-github/scm/v1/profiles
+  scm profile export my-profile ./exports`,
+	Args: cobra.ExactArgs(2),
+	RunE: runProfileExport,
+}
+
+func runProfileExport(cmd *cobra.Command, args []string) error {
+	name := args[0]
+	destDir := args[1]
+
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	profileDirs := profiles.GetProfileDirs(cfg.SCMPaths)
+	if len(profileDirs) == 0 {
+		return fmt.Errorf("profile not found: no profiles directory")
+	}
+
+	loader := profiles.NewLoader(profileDirs)
+	profile, err := loader.Load(name)
+	if err != nil {
+		return fmt.Errorf("profile not found: %s", name)
+	}
+
+	// Ensure destination directory exists
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		return fmt.Errorf("failed to create destination directory: %w", err)
+	}
+
+	// Read source file
+	srcData, err := os.ReadFile(profile.Path)
+	if err != nil {
+		return fmt.Errorf("failed to read profile: %w", err)
+	}
+
+	// Write to destination
+	destPath := filepath.Join(destDir, filepath.Base(profile.Path))
+	if err := os.WriteFile(destPath, srcData, 0644); err != nil {
+		return fmt.Errorf("failed to write profile: %w", err)
+	}
+
+	fmt.Printf("Exported: %s -> %s\n", profile.Path, destPath)
+	return nil
+}
+
+var profileImportForce bool
+
+var profileImportCmd = &cobra.Command{
+	Use:   "import <path>",
+	Short: "Import a profile from a local file",
+	Long: `Import a profile YAML file into .scm/profiles.
+
+Use --force to overwrite an existing profile.
+
+Examples:
+  scm profile import ../scm-github/scm/v1/profiles/architect.yaml
+  scm profile import ./my-profile.yaml --force`,
+	Args: cobra.ExactArgs(1),
+	RunE: runProfileImport,
+}
+
+func runProfileImport(cmd *cobra.Command, args []string) error {
+	srcPath := args[0]
+
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	if cfg.IsEmbedded() {
+		return fmt.Errorf("no .scm directory found; run 'scm init --local' first")
+	}
+
+	// Verify source exists and is valid
+	srcData, err := os.ReadFile(srcPath)
+	if err != nil {
+		return fmt.Errorf("failed to read source file: %w", err)
+	}
+
+	// Parse to validate it's valid YAML
+	var profileData map[string]interface{}
+	if err := yaml.Unmarshal(srcData, &profileData); err != nil {
+		return fmt.Errorf("invalid profile file (not valid YAML): %w", err)
+	}
+
+	// Determine destination path
+	profileDir := filepath.Join(cfg.SCMPaths[0], "profiles")
+	if err := os.MkdirAll(profileDir, 0755); err != nil {
+		return fmt.Errorf("failed to create profiles directory: %w", err)
+	}
+
+	destPath := filepath.Join(profileDir, filepath.Base(srcPath))
+
+	// Check if destination exists
+	if _, err := os.Stat(destPath); err == nil && !profileImportForce {
+		return fmt.Errorf("profile already exists: %s (use --force to overwrite)", destPath)
+	}
+
+	// Write to destination
+	if err := os.WriteFile(destPath, srcData, 0644); err != nil {
+		return fmt.Errorf("failed to write profile: %w", err)
+	}
+
+	fmt.Printf("Imported: %s -> %s\n", srcPath, destPath)
+	return nil
+}
 
 func init() {
 	rootCmd.AddCommand(profileCmd)
@@ -346,30 +524,33 @@ func init() {
 	profileCmd.AddCommand(profileRemoveCmd)
 	profileCmd.AddCommand(profileShowCmd)
 	profileCmd.AddCommand(profileUpdateCmd)
+	profileCmd.AddCommand(profileExportCmd)
+	profileCmd.AddCommand(profileImportCmd)
 
-	profileAddCmd.Flags().StringSliceVar(&profileAddParents, "parent", nil, "Parent profile(s) to inherit from (can be repeated)")
-	profileAddCmd.Flags().StringSliceVarP(&profileAddFragments, "fragment", "f", nil, "Fragment(s) to include (can be repeated)")
-	profileAddCmd.Flags().StringSliceVarP(&profileAddGenerators, "generator", "g", nil, "Generator(s) to run (can be repeated)")
+	profileAddCmd.Flags().StringSliceVar(&profileAddParents, "parent", nil, "Parent profile URL(s) to inherit from")
+	profileAddCmd.Flags().StringSliceVarP(&profileAddBundles, "bundle", "b", nil, "Bundle URL(s) to include")
+	profileAddCmd.Flags().StringSliceVarP(&profileAddGenerators, "generator", "g", nil, "Generator(s) to run")
 	profileAddCmd.Flags().StringVarP(&profileAddDescription, "description", "d", "", "Description of the profile")
 
-	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddParents, "add-parent", nil, "Parent profile(s) to add (can be repeated)")
-	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveParents, "remove-parent", nil, "Parent profile(s) to remove (can be repeated)")
-	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddFragments, "add-fragment", nil, "Fragment(s) to add (can be repeated)")
-	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveFragments, "remove-fragment", nil, "Fragment(s) to remove (can be repeated)")
-	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddGenerators, "add-generator", nil, "Generator(s) to add (can be repeated)")
-	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveGenerators, "remove-generator", nil, "Generator(s) to remove (can be repeated)")
+	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddParents, "add-parent", nil, "Parent profile URL(s) to add")
+	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveParents, "remove-parent", nil, "Parent profile URL(s) to remove")
+	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddBundles, "add-bundle", nil, "Bundle URL(s) to add")
+	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveBundles, "remove-bundle", nil, "Bundle URL(s) to remove")
+	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddGenerators, "add-generator", nil, "Generator(s) to add")
+	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveGenerators, "remove-generator", nil, "Generator(s) to remove")
 	profileUpdateCmd.Flags().StringVarP(&profileUpdateDescription, "description", "d", "", "New description for the profile")
+
+	profileImportCmd.Flags().BoolVarP(&profileImportForce, "force", "f", false, "Overwrite existing profile")
 
 	// Register positional arg completions
 	profileShowCmd.ValidArgsFunction = completeProfileNames
 	profileRemoveCmd.ValidArgsFunction = completeProfileNames
 	profileUpdateCmd.ValidArgsFunction = completeProfileNames
+	profileExportCmd.ValidArgsFunction = completeProfileNames
 
 	// Register flag completions
 	_ = profileAddCmd.RegisterFlagCompletionFunc("parent", completeProfileNames)
-	_ = profileAddCmd.RegisterFlagCompletionFunc("fragment", completeFragmentNames)
 	_ = profileUpdateCmd.RegisterFlagCompletionFunc("add-parent", completeProfileNames)
 	_ = profileUpdateCmd.RegisterFlagCompletionFunc("remove-parent", completeProfileNames)
-	_ = profileUpdateCmd.RegisterFlagCompletionFunc("add-fragment", completeFragmentNames)
-	_ = profileUpdateCmd.RegisterFlagCompletionFunc("remove-fragment", completeFragmentNames)
 }
+

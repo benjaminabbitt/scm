@@ -13,9 +13,9 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	"github.com/benjaminabbitt/scm/internal/bundles"
 	"github.com/benjaminabbitt/scm/internal/collections"
 	"github.com/benjaminabbitt/scm/internal/config"
-	"github.com/benjaminabbitt/scm/internal/fragments"
 	pb "github.com/benjaminabbitt/scm/internal/lm/grpc"
 )
 
@@ -45,7 +45,7 @@ Generators are programs that output context fragments in a structured format.
 They can provide dynamic information like git status, environment info, or project state.
 
 External generators can be added by placing binaries named 'scm-generator-<name>'
-in ~/.scm/generators/ or .scm/generators/, or by configuring them in config.yaml.`,
+in .scm/generators/, or by configuring them in config.yaml.`,
 }
 
 var generatorListCmd = &cobra.Command{
@@ -237,10 +237,10 @@ func ResolveGeneratorType(cfg *config.Config, name string) (path string, genType
 	return "", GeneratorNotFound
 }
 
-// RunGenerators runs multiple generators and returns their fragments.
+// RunGenerators runs multiple generators and returns their content.
 // Verbosity controls logging: 0=quiet, 1+=show commands/debug.
-func RunGenerators(cfg *config.Config, names []string, verbosity int, warnFunc func(string)) ([]*fragments.Fragment, error) {
-	var frags []*fragments.Fragment
+func RunGenerators(cfg *config.Config, names []string, verbosity int, warnFunc func(string)) ([]*bundles.LoadedContent, error) {
+	var frags []*bundles.LoadedContent
 
 	for _, name := range names {
 		path, genType := ResolveGeneratorType(cfg, name)
@@ -317,8 +317,8 @@ func RunGenerators(cfg *config.Config, names []string, verbosity int, warnFunc f
 			exports = resp.Exports
 		}
 
-		// Create fragment from response
-		frag := &fragments.Fragment{
+		// Create content from response
+		frag := &bundles.LoadedContent{
 			Name:    name,
 			Content: content,
 			Exports: exports,

@@ -4,179 +4,101 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
-	"os/exec"
 	"strings"
-
-	pb "github.com/benjaminabbitt/scm/internal/lm/grpc"
-	"github.com/benjaminabbitt/scm/internal/ptyrunner"
 )
 
 // Codex implements the Backend interface for OpenAI Codex CLI.
 //
 // DISCLAIMER: This plugin is untested and provided on a best-effort basis.
-// Bug reports are welcome. If OpenAI would like to provide API credits
-// or licenses for testing, contributions to improve this integration are appreciated.
 type Codex struct {
 	BaseBackend
-	BinaryPath string
-	Args       []string
-	Env        map[string]string
+	context *CLIContextProvider
 }
 
 // NewCodex creates a new Codex backend with default settings.
 func NewCodex() *Codex {
-	return &Codex{
+	b := &Codex{
 		BaseBackend: NewBaseBackend("codex", "1.0.0"),
-		BinaryPath:  "codex",
-		Args:        []string{},
-		Env:         make(map[string]string),
+		context:     &CLIContextProvider{},
 	}
+	b.BinaryPath = "codex"
+	return b
 }
 
-// Run executes Codex with the given request.
-func (b *Codex) Run(ctx context.Context, req *pb.RunRequest, stdout, stderr io.Writer) (int32, *pb.ModelInfo, error) {
-	opts := req.GetOptions()
-	if opts == nil {
-		opts = &pb.RunOptions{}
+// Lifecycle returns nil - Codex doesn't support lifecycle hooks.
+func (b *Codex) Lifecycle() LifecycleHandler { return nil }
+
+// Skills returns nil - Codex doesn't support skills.
+func (b *Codex) Skills() SkillRegistry { return nil }
+
+// Context returns the context provider (CLI arg injection).
+func (b *Codex) Context() ContextProvider { return b.context }
+
+// MCP returns nil - Codex doesn't support MCP servers.
+func (b *Codex) MCP() MCPManager { return nil }
+
+// Setup prepares the backend for execution.
+func (b *Codex) Setup(ctx context.Context, req *SetupRequest) error {
+	b.SetWorkDir(req.WorkDir)
+	if _, err := WriteContextFile(b.WorkDir(), req.Fragments); err != nil {
+		return fmt.Errorf("failed to write context file: %w", err)
+	}
+	return b.context.Provide(b.WorkDir(), req.Fragments)
+}
+
+// Execute runs the backend with the given request.
+func (b *Codex) Execute(ctx context.Context, req *ExecuteRequest, stdout, stderr io.Writer) (*ExecuteResult, error) {
+	modelName := req.Model
+	if modelName == "" {
+		modelName = "o3-mini"
+	}
+	modelInfo := &ModelInfo{ModelName: modelName, Provider: "openai"}
+
+	if req.DryRun {
+		return &ExecuteResult{ExitCode: 0, ModelInfo: modelInfo}, nil
 	}
 
-	// Determine work directory
-	workDir := opts.WorkDir
-	if workDir == "" {
-		workDir = "."
-	}
-
-	// Write session-scoped context file (for tracking, no hook injection for codex)
-	session, err := WriteSessionContext(workDir, req.Fragments)
-	if err != nil {
-		fmt.Fprintf(stderr, "warning: failed to write session context: %v\n", err)
-	}
-	if session != nil && session.ID != "" {
-		defer CleanupSessionContext(workDir, session.ID)
-	}
-
-	// Determine if quiet mode (for non-interactive)
-	quiet := opts.Mode == pb.ExecutionMode_ONESHOT
+	quiet := req.Mode == ModeOneshot
 	args := b.buildArgs(req, quiet)
-
-	// Verbosity level 16+: show command (optional, defaults to 0)
-	if opts.Verbosity >= 16 {
+	if req.Verbosity >= 16 {
 		fmt.Fprintf(stderr, "[v16] %s %s\n", b.BinaryPath, strings.Join(args, " "))
 	}
 
-	// Build model info (optional model override)
-	modelName := "o3-mini" // codex default
-	if opts.Model != "" {
-		modelName = opts.Model
-	}
-	modelInfo := &pb.ModelInfo{
-		ModelName: modelName,
-		Provider:  "openai",
+	var exitCode int32
+	var err error
+	if req.Mode == ModeInteractive {
+		exitCode, err = b.RunInteractive(ctx, args, req.Env, stdout, stderr)
+	} else {
+		exitCode, err = b.RunNonInteractive(ctx, args, req.Env, stdout, stderr)
 	}
 
-	// Dry run - return without executing (optional, defaults to false)
-	if opts.DryRun {
-		return 0, modelInfo, nil
-	}
-
-	// Use PTY for interactive mode
-	if opts.Mode == pb.ExecutionMode_INTERACTIVE {
-		exitCode, err := b.runInteractive(ctx, req, args, stdout, stderr)
-		return exitCode, modelInfo, err
-	}
-	exitCode, err := b.runNonInteractive(ctx, req, args, stdout, stderr)
-	return exitCode, modelInfo, err
+	return &ExecuteResult{ExitCode: exitCode, ModelInfo: modelInfo}, err
 }
 
-// runInteractive runs Codex in interactive mode using a PTY.
-func (b *Codex) runInteractive(ctx context.Context, req *pb.RunRequest, args []string, stdout, stderr io.Writer) (int32, error) {
-	cmd := exec.CommandContext(ctx, b.BinaryPath, args...)
+// Cleanup releases resources after execution.
+func (b *Codex) Cleanup(ctx context.Context) error { return nil }
 
-	opts := req.GetOptions()
-	if opts != nil && opts.WorkDir != "" {
-		cmd.Dir = opts.WorkDir
-	}
-
-	// Set environment variables
-	cmd.Env = os.Environ()
-	for k, v := range b.Env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
-	}
-	if opts != nil {
-		for k, v := range opts.Env {
-			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
-		}
-	}
-
-	result, err := ptyrunner.RunInteractive(ctx, cmd, stdout, stderr)
-	if err != nil {
-		return 1, fmt.Errorf("failed to run codex: %w", err)
-	}
-
-	return int32(result.ExitCode), nil
-}
-
-// runNonInteractive runs Codex in non-interactive mode.
-func (b *Codex) runNonInteractive(ctx context.Context, req *pb.RunRequest, args []string, stdout, stderr io.Writer) (int32, error) {
-	cmd := exec.CommandContext(ctx, b.BinaryPath, args...)
-
-	opts := req.GetOptions()
-	if opts != nil && opts.WorkDir != "" {
-		cmd.Dir = opts.WorkDir
-	}
-
-	// Set environment variables
-	cmd.Env = os.Environ()
-	for k, v := range b.Env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
-	}
-	if opts != nil {
-		for k, v := range opts.Env {
-			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
-		}
-	}
-
-	result, err := ptyrunner.RunNonInteractive(ctx, cmd, stdout, stderr)
-	if err != nil {
-		return 1, fmt.Errorf("failed to run codex: %w", err)
-	}
-
-	return int32(result.ExitCode), nil
-}
-
-// buildArgs constructs the command-line arguments for codex.
-func (b *Codex) buildArgs(req *pb.RunRequest, quiet bool) []string {
-	// Start with configured args
+func (b *Codex) buildArgs(req *ExecuteRequest, quiet bool) []string {
 	args := make([]string, len(b.Args))
 	copy(args, b.Args)
 
-	opts := req.GetOptions()
-
-	// Add auto-approve flag
-	if opts != nil && opts.AutoApprove {
+	if req.AutoApprove {
 		args = append(args, "--full-auto")
 	}
-
-	// Add --quiet for non-interactive mode
 	if quiet {
 		args = append(args, "--quiet")
 	}
 
-	// Assemble context from fragments
-	context := b.AssembleContext(req.Fragments)
-	promptContent := b.GetPromptContent(req)
-
-	// Build the prompt with context
-	// Note: Codex uses CODEX.md for context by default
-	if promptContent != "" {
-		var prompt string
+	context := b.context.GetAssembled()
+	prompt := GetPromptContent(req.Prompt)
+	if prompt != "" {
+		var message string
 		if context != "" {
-			prompt = fmt.Sprintf("Context:\n%s\n\n---\n\nTask: %s", context, promptContent)
+			message = fmt.Sprintf("Context:\n%s\n\n---\n\nTask: %s", context, prompt)
 		} else {
-			prompt = promptContent
+			message = prompt
 		}
-		args = append(args, prompt)
+		args = append(args, message)
 	}
 
 	return args

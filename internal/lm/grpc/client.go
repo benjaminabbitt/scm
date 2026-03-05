@@ -21,21 +21,36 @@ func (c *GRPCClient) Info(ctx context.Context) (*PluginInfo, error) {
 	return c.client.Info(ctx, &Empty{})
 }
 
+// RunResult contains the result of a Run call including model info.
+type RunResult struct {
+	ExitCode  int32
+	ModelInfo *ModelInfo
+}
+
 // Run executes the plugin and streams output to the provided writers.
 func (c *GRPCClient) Run(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (int32, error) {
-	stream, err := c.client.Run(ctx, req)
+	result, err := c.RunWithModelInfo(ctx, req, stdout, stderr)
 	if err != nil {
 		return 1, err
 	}
+	return result.ExitCode, nil
+}
 
-	var exitCode int32
+// RunWithModelInfo executes the plugin and returns both exit code and model info.
+func (c *GRPCClient) RunWithModelInfo(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (*RunResult, error) {
+	stream, err := c.client.Run(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &RunResult{}
 	for {
 		resp, err := stream.Recv()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			return 1, err
+			return nil, err
 		}
 
 		switch output := resp.Output.(type) {
@@ -44,11 +59,13 @@ func (c *GRPCClient) Run(ctx context.Context, req *RunRequest, stdout, stderr io
 		case *RunResponse_Stderr:
 			_, _ = stderr.Write(output.Stderr)
 		case *RunResponse_ExitCode:
-			exitCode = output.ExitCode
+			result.ExitCode = output.ExitCode
+			// ModelInfo is sent with exit_code
+			result.ModelInfo = resp.ModelInfo
 		}
 	}
 
-	return exitCode, nil
+	return result, nil
 }
 
 // PluginClient manages the lifecycle of a plugin process.
@@ -145,6 +162,11 @@ func (p *PluginClient) Info(ctx context.Context) (*PluginInfo, error) {
 // Run executes the plugin.
 func (p *PluginClient) Run(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (int32, error) {
 	return p.grpc.Run(ctx, req, stdout, stderr)
+}
+
+// RunWithModelInfo executes the plugin and returns both exit code and model info.
+func (p *PluginClient) RunWithModelInfo(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (*RunResult, error) {
+	return p.grpc.RunWithModelInfo(ctx, req, stdout, stderr)
 }
 
 // Kill terminates the plugin process.

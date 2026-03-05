@@ -142,4 +142,63 @@ content: |-
 
     When constraints change, optimal organization changes. What won't change: **tests belong near the code they test**. The definition of "near" adapts.
 content_hash: sha256:d4dbb0441710f98c7e1d072e43207c49b2dd6a92285c1c274b231abdd09f1550
+distilled: |-
+    # Test Organization
+
+    Tests go next to code: same dir, separate file (`.test.rs`, `_test.go`).
+
+    ## Why Separate Files
+
+    AI context cost changed calculus:
+    - Inline tests = noise in search/AI context (60% wasted tokens)
+    - Separate files = selective loading, clean prod files, faster grep
+
+    ## Why Not Parallel Trees
+
+    Java's `src/main`/`src/test` was JVM workaround (no conditional compilation, classpath loading). Modern langs solved this.
+
+    ### Rust
+    ```rust
+    // mod.rs
+    #[cfg(test)]
+    #[path = "correlation.test.rs"]
+    mod correlation_tests;
+    ```
+    Release builds exclude test module entirely.
+
+    ### Go
+    `_test.go` files skipped by `go build`.
+
+    ## Recommended Structure
+    ```
+    src/
+    ├── correlation.rs        # Prod
+    ├── correlation.test.rs   # Tests
+    └── mod.rs
+    ```
+
+    **Mutation testing benefit:** Survived mutation in prod file only; revert doesn't lose test improvements.
+
+    ## Separation Exceptions
+    - Integration tests → `tests/`
+    - E2E → separate project
+    - Shared fixtures → `src/test_utils/`
+
+    Colocation is default.
+
+    ## Test Location by Type
+
+    | Type | Tests | Location |
+    |------|-------|----------|
+    | Unit | Pure logic | Adjacent `.test` |
+    | BIT | Impl vs interface contract | Adjacent `.test` |
+    | Integration | Multi-component | `tests/` |
+    | E2E | Full system | Separate project |
+
+    ## Tradeoffs
+
+    **Lost:** visibility, atomic commits, encouragement
+    **Gained:** clean prod files, efficient AI, faster search
+
+    Optimal org adapts to tooling. Constant: tests near code.
 distilled_by: claude-code
