@@ -3,26 +3,51 @@ package remote
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 
+	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 )
 
 // VendorManager handles vendoring remote dependencies locally.
 type VendorManager struct {
-	baseDir    string
-	configPath string
+	baseDir        string
+	configPath     string
+	fs             afero.Fs
+	fetcherFactory FetcherFactory
+}
+
+// VendorOption is a functional option for configuring a VendorManager.
+type VendorOption func(*VendorManager)
+
+// WithVendorFS sets a custom filesystem implementation (for testing).
+func WithVendorFS(fs afero.Fs) VendorOption {
+	return func(m *VendorManager) {
+		m.fs = fs
+	}
+}
+
+// WithVendorFetcherFactory sets a custom fetcher factory (for testing).
+func WithVendorFetcherFactory(ff FetcherFactory) VendorOption {
+	return func(m *VendorManager) {
+		m.fetcherFactory = ff
+	}
 }
 
 // NewVendorManager creates a new vendor manager.
-func NewVendorManager(baseDir string) *VendorManager {
+func NewVendorManager(baseDir string, opts ...VendorOption) *VendorManager {
 	if baseDir == "" {
 		baseDir = ".scm"
 	}
-	return &VendorManager{
-		baseDir: baseDir,
+	m := &VendorManager{
+		baseDir:        baseDir,
+		fs:             afero.NewOsFs(),
+		fetcherFactory: defaultFetcherFactory,
 	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
 }
 
 // VendorDir returns the vendor directory path.
@@ -33,7 +58,7 @@ func (m *VendorManager) VendorDir() string {
 // IsVendored checks if vendor mode is enabled.
 func (m *VendorManager) IsVendored() bool {
 	configPath := filepath.Join(".scm", "remotes.yaml")
-	data, err := os.ReadFile(configPath)
+	data, err := afero.ReadFile(m.fs, configPath)
 	if err != nil {
 		return false
 	}
@@ -53,12 +78,12 @@ func (m *VendorManager) SetVendorMode(enabled bool) error {
 	configPath := filepath.Join(".scm", "remotes.yaml")
 
 	// Ensure directory exists
-	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+	if err := m.fs.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
 		return err
 	}
 
 	var existingRaw map[string]interface{}
-	data, err := os.ReadFile(configPath)
+	data, err := afero.ReadFile(m.fs, configPath)
 	if err == nil {
 		yaml.Unmarshal(data, &existingRaw)
 	}
@@ -77,7 +102,7 @@ func (m *VendorManager) SetVendorMode(enabled bool) error {
 		return err
 	}
 
-	return os.WriteFile(configPath, out, 0644)
+	return afero.WriteFile(m.fs, configPath, out, 0644)
 }
 
 // VendorAll copies all locked dependencies to the vendor directory.
@@ -85,7 +110,7 @@ func (m *VendorManager) VendorAll(ctx context.Context, lockfile *Lockfile, regis
 	vendorDir := m.VendorDir()
 
 	// Clean existing vendor directory
-	if err := os.RemoveAll(vendorDir); err != nil {
+	if err := m.fs.RemoveAll(vendorDir); err != nil {
 		return fmt.Errorf("failed to clean vendor directory: %w", err)
 	}
 
@@ -105,7 +130,7 @@ func (m *VendorManager) VendorAll(ctx context.Context, lockfile *Lockfile, regis
 			return fmt.Errorf("remote not found %s: %w", ref.Remote, err)
 		}
 
-		fetcher, err := NewFetcher(rem.URL, auth)
+		fetcher, err := m.fetcherFactory(rem.URL, auth)
 		if err != nil {
 			return fmt.Errorf("failed to create fetcher: %w", err)
 		}
@@ -126,11 +151,11 @@ func (m *VendorManager) VendorAll(ctx context.Context, lockfile *Lockfile, regis
 
 		// Write to vendor directory
 		vendorPath := filepath.Join(vendorDir, string(e.Type)+"s", ref.Remote, ref.Path+".yaml")
-		if err := os.MkdirAll(filepath.Dir(vendorPath), 0755); err != nil {
+		if err := m.fs.MkdirAll(filepath.Dir(vendorPath), 0755); err != nil {
 			return fmt.Errorf("failed to create directory: %w", err)
 		}
 
-		if err := os.WriteFile(vendorPath, content, 0644); err != nil {
+		if err := afero.WriteFile(m.fs, vendorPath, content, 0644); err != nil {
 			return fmt.Errorf("failed to write %s: %w", vendorPath, err)
 		}
 	}
@@ -141,12 +166,12 @@ func (m *VendorManager) VendorAll(ctx context.Context, lockfile *Lockfile, regis
 // GetVendored returns content from the vendor directory if available.
 func (m *VendorManager) GetVendored(itemType ItemType, ref *Reference) ([]byte, error) {
 	vendorPath := filepath.Join(m.VendorDir(), itemType.DirName(), ref.Remote, ref.Path+".yaml")
-	return os.ReadFile(vendorPath)
+	return afero.ReadFile(m.fs, vendorPath)
 }
 
 // HasVendored checks if an item exists in the vendor directory.
 func (m *VendorManager) HasVendored(itemType ItemType, ref *Reference) bool {
 	vendorPath := filepath.Join(m.VendorDir(), itemType.DirName(), ref.Remote, ref.Path+".yaml")
-	_, err := os.Stat(vendorPath)
+	_, err := m.fs.Stat(vendorPath)
 	return err == nil
 }

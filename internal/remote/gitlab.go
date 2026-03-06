@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -12,14 +13,28 @@ import (
 
 // GitLabFetcher implements Fetcher for GitLab repositories.
 type GitLabFetcher struct {
-	client  *gitlab.Client
+	client  GitLabClient
 	baseURL string // e.g., "https://gitlab.com" or self-hosted URL
+}
+
+// GitLabFetcherOption configures a GitLabFetcher.
+type GitLabFetcherOption func(*gitLabFetcherConfig)
+
+type gitLabFetcherConfig struct {
+	clientOpts []gitlab.ClientOptionFunc
+}
+
+// WithGitLabHTTPClient sets a custom HTTP client (for testing).
+func WithGitLabHTTPClient(client *http.Client) GitLabFetcherOption {
+	return func(c *gitLabFetcherConfig) {
+		c.clientOpts = append(c.clientOpts, gitlab.WithHTTPClient(client))
+	}
 }
 
 // NewGitLabFetcher creates a new GitLab fetcher.
 // baseURL should be the GitLab instance URL (e.g., "https://gitlab.com").
 // If token is empty, it will try GITLAB_TOKEN env var.
-func NewGitLabFetcher(baseURL, token string) (*GitLabFetcher, error) {
+func NewGitLabFetcher(baseURL, token string, opts ...GitLabFetcherOption) (*GitLabFetcher, error) {
 	if baseURL == "" {
 		baseURL = "https://gitlab.com"
 	}
@@ -27,19 +42,17 @@ func NewGitLabFetcher(baseURL, token string) (*GitLabFetcher, error) {
 		token = os.Getenv("GITLAB_TOKEN")
 	}
 
-	opts := []gitlab.ClientOptionFunc{
+	cfg := &gitLabFetcherConfig{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	clientOpts := []gitlab.ClientOptionFunc{
 		gitlab.WithBaseURL(baseURL),
 	}
+	clientOpts = append(clientOpts, cfg.clientOpts...)
 
-	var client *gitlab.Client
-	var err error
-
-	if token != "" {
-		client, err = gitlab.NewClient(token, opts...)
-	} else {
-		client, err = gitlab.NewClient("", opts...)
-	}
-
+	client, err := newRealGitLabClient(token, clientOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GitLab client: %w", err)
 	}
@@ -48,6 +61,11 @@ func NewGitLabFetcher(baseURL, token string) (*GitLabFetcher, error) {
 		client:  client,
 		baseURL: baseURL,
 	}, nil
+}
+
+// NewGitLabFetcherWithClient creates a GitLabFetcher with a custom client (for testing).
+func NewGitLabFetcherWithClient(client GitLabClient, baseURL string) *GitLabFetcher {
+	return &GitLabFetcher{client: client, baseURL: baseURL}
 }
 
 // Forge returns the forge type.
@@ -67,7 +85,7 @@ func (f *GitLabFetcher) FetchFile(ctx context.Context, owner, repo, path, ref st
 		opts.Ref = &ref
 	}
 
-	content, resp, err := f.client.RepositoryFiles.GetRawFile(projectID(owner, repo), path, opts, gitlab.WithContext(ctx))
+	content, resp, err := f.client.RepositoryFiles().GetRawFile(projectID(owner, repo), path, opts, gitlab.WithContext(ctx))
 	if err != nil {
 		if resp != nil && resp.StatusCode == 404 {
 			return nil, fmt.Errorf("file not found: %s/%s/%s", owner, repo, path)
@@ -87,7 +105,7 @@ func (f *GitLabFetcher) ListDir(ctx context.Context, owner, repo, path, ref stri
 		opts.Ref = &ref
 	}
 
-	items, _, err := f.client.Repositories.ListTree(projectID(owner, repo), opts, gitlab.WithContext(ctx))
+	items, _, err := f.client.Repositories().ListTree(projectID(owner, repo), opts, gitlab.WithContext(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("failed to list directory: %w", err)
 	}
@@ -111,20 +129,20 @@ func (f *GitLabFetcher) ResolveRef(ctx context.Context, owner, repo, ref string)
 
 	// Try as a commit SHA first
 	if len(ref) >= 7 && len(ref) <= 40 {
-		commit, _, err := f.client.Commits.GetCommit(pid, ref, nil, gitlab.WithContext(ctx))
+		commit, _, err := f.client.Commits().GetCommit(pid, ref, nil, gitlab.WithContext(ctx))
 		if err == nil {
 			return commit.ID, nil
 		}
 	}
 
 	// Try as a branch
-	branch, _, err := f.client.Branches.GetBranch(pid, ref, gitlab.WithContext(ctx))
+	branch, _, err := f.client.Branches().GetBranch(pid, ref, gitlab.WithContext(ctx))
 	if err == nil {
 		return branch.Commit.ID, nil
 	}
 
 	// Try as a tag
-	tag, _, err := f.client.Tags.GetTag(pid, ref, gitlab.WithContext(ctx))
+	tag, _, err := f.client.Tags().GetTag(pid, ref, gitlab.WithContext(ctx))
 	if err == nil {
 		return tag.Commit.ID, nil
 	}
@@ -156,7 +174,7 @@ func (f *GitLabFetcher) SearchRepos(ctx context.Context, query string, limit int
 		},
 	}
 
-	projects, _, err := f.client.Projects.ListProjects(opts, gitlab.WithContext(ctx))
+	projects, _, err := f.client.Projects().ListProjects(opts, gitlab.WithContext(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("search failed: %w", err)
 	}
@@ -191,7 +209,7 @@ func (f *GitLabFetcher) ValidateRepo(ctx context.Context, owner, repo string) (b
 		Path: &path,
 	}
 
-	items, resp, err := f.client.Repositories.ListTree(projectID(owner, repo), opts, gitlab.WithContext(ctx))
+	items, resp, err := f.client.Repositories().ListTree(projectID(owner, repo), opts, gitlab.WithContext(ctx))
 	if err != nil {
 		if resp != nil && resp.StatusCode == 404 {
 			return false, nil
@@ -204,7 +222,7 @@ func (f *GitLabFetcher) ValidateRepo(ctx context.Context, owner, repo string) (b
 
 // GetDefaultBranch returns the default branch name.
 func (f *GitLabFetcher) GetDefaultBranch(ctx context.Context, owner, repo string) (string, error) {
-	project, _, err := f.client.Projects.GetProject(projectID(owner, repo), nil, gitlab.WithContext(ctx))
+	project, _, err := f.client.Projects().GetProject(projectID(owner, repo), nil, gitlab.WithContext(ctx))
 	if err != nil {
 		return "", fmt.Errorf("failed to get project info: %w", err)
 	}
@@ -213,7 +231,7 @@ func (f *GitLabFetcher) GetDefaultBranch(ctx context.Context, owner, repo string
 
 // GitLabPublisher implements Publisher for GitLab repositories.
 type GitLabPublisher struct {
-	client  *gitlab.Client
+	client  GitLabClient
 	baseURL string
 }
 
@@ -230,12 +248,17 @@ func NewGitLabPublisher(baseURL, token string) *GitLabPublisher {
 		gitlab.WithBaseURL(baseURL),
 	}
 
-	client, _ := gitlab.NewClient(token, opts...)
+	client, _ := newRealGitLabClient(token, opts...)
 
 	return &GitLabPublisher{
 		client:  client,
 		baseURL: baseURL,
 	}
+}
+
+// NewGitLabPublisherWithClient creates a GitLabPublisher with a custom client (for testing).
+func NewGitLabPublisherWithClient(client GitLabClient, baseURL string) *GitLabPublisher {
+	return &GitLabPublisher{client: client, baseURL: baseURL}
 }
 
 // CreateOrUpdateFile creates or updates a file in a repository.
@@ -252,7 +275,7 @@ func (p *GitLabPublisher) CreateOrUpdateFile(ctx context.Context, owner, repo, p
 			Content:       gitlab.Ptr(string(content)),
 			CommitMessage: &message,
 		}
-		_, _, err := p.client.RepositoryFiles.UpdateFile(pid, path, opts, gitlab.WithContext(ctx))
+		_, _, err := p.client.RepositoryFiles().UpdateFile(pid, path, opts, gitlab.WithContext(ctx))
 		if err != nil {
 			return "", fmt.Errorf("failed to update file: %w", err)
 		}
@@ -263,14 +286,14 @@ func (p *GitLabPublisher) CreateOrUpdateFile(ctx context.Context, owner, repo, p
 			Content:       gitlab.Ptr(string(content)),
 			CommitMessage: &message,
 		}
-		_, _, err := p.client.RepositoryFiles.CreateFile(pid, path, opts, gitlab.WithContext(ctx))
+		_, _, err := p.client.RepositoryFiles().CreateFile(pid, path, opts, gitlab.WithContext(ctx))
 		if err != nil {
 			return "", fmt.Errorf("failed to create file: %w", err)
 		}
 	}
 
 	// Get the commit SHA from the branch head after the operation
-	branchInfo, _, err := p.client.Branches.GetBranch(pid, branch, gitlab.WithContext(ctx))
+	branchInfo, _, err := p.client.Branches().GetBranch(pid, branch, gitlab.WithContext(ctx))
 	if err != nil {
 		return "", fmt.Errorf("failed to get branch info: %w", err)
 	}
@@ -288,7 +311,7 @@ func (p *GitLabPublisher) CreatePullRequest(ctx context.Context, owner, repo, ti
 		TargetBranch: &base,
 	}
 
-	mr, _, err := p.client.MergeRequests.CreateMergeRequest(pid, opts, gitlab.WithContext(ctx))
+	mr, _, err := p.client.MergeRequests().CreateMergeRequest(pid, opts, gitlab.WithContext(ctx))
 	if err != nil {
 		return "", fmt.Errorf("failed to create merge request: %w", err)
 	}
@@ -305,7 +328,7 @@ func (p *GitLabPublisher) CreateBranch(ctx context.Context, owner, repo, branchN
 		Ref:    &baseSHA,
 	}
 
-	_, _, err := p.client.Branches.CreateBranch(pid, opts, gitlab.WithContext(ctx))
+	_, _, err := p.client.Branches().CreateBranch(pid, opts, gitlab.WithContext(ctx))
 	if err != nil {
 		return fmt.Errorf("failed to create branch: %w", err)
 	}
@@ -321,7 +344,7 @@ func (p *GitLabPublisher) GetFileSHA(ctx context.Context, owner, repo, path, ref
 		Ref: &ref,
 	}
 
-	file, resp, err := p.client.RepositoryFiles.GetFile(pid, path, opts, gitlab.WithContext(ctx))
+	file, resp, err := p.client.RepositoryFiles().GetFile(pid, path, opts, gitlab.WithContext(ctx))
 	if err != nil {
 		if resp != nil && resp.StatusCode == 404 {
 			return "", nil // File doesn't exist

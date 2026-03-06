@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 )
 
@@ -12,10 +13,21 @@ import (
 type ReplaceManager struct {
 	configPath string
 	replaces   map[string]string
+	fs         afero.Fs
+}
+
+// ReplaceOption is a functional option for configuring a ReplaceManager.
+type ReplaceOption func(*ReplaceManager)
+
+// WithReplaceFS sets a custom filesystem implementation (for testing).
+func WithReplaceFS(fs afero.Fs) ReplaceOption {
+	return func(m *ReplaceManager) {
+		m.fs = fs
+	}
 }
 
 // NewReplaceManager creates a new replace manager.
-func NewReplaceManager(configPath string) (*ReplaceManager, error) {
+func NewReplaceManager(configPath string, opts ...ReplaceOption) (*ReplaceManager, error) {
 	if configPath == "" {
 		configPath = filepath.Join(".scm", "remotes.yaml")
 	}
@@ -23,6 +35,11 @@ func NewReplaceManager(configPath string) (*ReplaceManager, error) {
 	m := &ReplaceManager{
 		configPath: configPath,
 		replaces:   make(map[string]string),
+		fs:         afero.NewOsFs(),
+	}
+
+	for _, opt := range opts {
+		opt(m)
 	}
 
 	if err := m.load(); err != nil && !os.IsNotExist(err) {
@@ -33,7 +50,7 @@ func NewReplaceManager(configPath string) (*ReplaceManager, error) {
 }
 
 func (m *ReplaceManager) load() error {
-	data, err := os.ReadFile(m.configPath)
+	data, err := afero.ReadFile(m.fs, m.configPath)
 	if err != nil {
 		return err
 	}
@@ -55,7 +72,7 @@ func (m *ReplaceManager) load() error {
 func (m *ReplaceManager) save() error {
 	// Read existing config
 	var existingRaw map[string]interface{}
-	data, err := os.ReadFile(m.configPath)
+	data, err := afero.ReadFile(m.fs, m.configPath)
 	if err == nil {
 		yaml.Unmarshal(data, &existingRaw)
 	}
@@ -71,7 +88,7 @@ func (m *ReplaceManager) save() error {
 	}
 
 	// Ensure directory exists
-	if err := os.MkdirAll(filepath.Dir(m.configPath), 0755); err != nil {
+	if err := m.fs.MkdirAll(filepath.Dir(m.configPath), 0755); err != nil {
 		return err
 	}
 
@@ -80,13 +97,13 @@ func (m *ReplaceManager) save() error {
 		return err
 	}
 
-	return os.WriteFile(m.configPath, out, 0644)
+	return afero.WriteFile(m.fs, m.configPath, out, 0644)
 }
 
 // Add adds a replace directive.
 func (m *ReplaceManager) Add(ref, localPath string) error {
 	// Validate local path exists
-	if _, err := os.Stat(localPath); os.IsNotExist(err) {
+	if _, err := m.fs.Stat(localPath); os.IsNotExist(err) {
 		return fmt.Errorf("local path does not exist: %s", localPath)
 	}
 
@@ -131,5 +148,5 @@ func (m *ReplaceManager) LoadReplaced(ref string) ([]byte, error) {
 		return nil, fmt.Errorf("no replace directive for: %s", ref)
 	}
 
-	return os.ReadFile(path)
+	return afero.ReadFile(m.fs, path)
 }

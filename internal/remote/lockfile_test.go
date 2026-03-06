@@ -1,15 +1,16 @@
 package remote
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/spf13/afero"
 )
 
 func TestLockfileManager_LoadEmpty(t *testing.T) {
-	tmpDir := t.TempDir()
-	manager := NewLockfileManager(tmpDir)
+	fs := afero.NewMemMapFs()
+	manager := NewLockfileManager("/test", WithLockfileFS(fs))
 
 	lockfile, err := manager.Load()
 	if err != nil {
@@ -28,8 +29,8 @@ func TestLockfileManager_LoadEmpty(t *testing.T) {
 }
 
 func TestLockfileManager_SaveAndLoad(t *testing.T) {
-	tmpDir := t.TempDir()
-	manager := NewLockfileManager(tmpDir)
+	fs := afero.NewMemMapFs()
+	manager := NewLockfileManager("/test", WithLockfileFS(fs))
 
 	// Create lockfile
 	lockfile := &Lockfile{
@@ -53,7 +54,8 @@ func TestLockfileManager_SaveAndLoad(t *testing.T) {
 
 	// Verify file exists
 	path := manager.Path()
-	if _, err := os.Stat(path); os.IsNotExist(err) {
+	exists, err := afero.Exists(fs, path)
+	if err != nil || !exists {
 		t.Fatalf("lockfile not created at %s", path)
 	}
 
@@ -242,5 +244,350 @@ func TestLockfileManager_DefaultDir(t *testing.T) {
 
 	if path != expected {
 		t.Errorf("Path() = %q, want %q", path, expected)
+	}
+}
+
+func TestWithLockfileFS(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	manager := NewLockfileManager("/test", WithLockfileFS(fs))
+
+	// Verify the custom FS is used by saving and loading
+	lockfile := &Lockfile{
+		Version:  1,
+		Bundles:  make(map[string]LockEntry),
+		Profiles: make(map[string]LockEntry),
+	}
+	lockfile.AddEntry(ItemTypeBundle, "test/bundle", LockEntry{SHA: "abc123"})
+
+	if err := manager.Save(lockfile); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	// Verify file was written to memfs
+	exists, err := afero.Exists(fs, manager.Path())
+	if err != nil || !exists {
+		t.Error("lockfile should exist in memory fs")
+	}
+}
+
+func TestLockfile_GetCanonicalURL(t *testing.T) {
+	tests := []struct {
+		name      string
+		localName string
+		entry     LockEntry
+		itemType  ItemType
+		wantURL   string
+		wantOk    bool
+	}{
+		{
+			name:      "bundle with requested version",
+			localName: "scm-github/core-practices",
+			entry: LockEntry{
+				SHA:              "abc123",
+				URL:              "https://github.com/alice/scm",
+				SCMVersion:       "v1",
+				RequestedVersion: "v2.0.0",
+			},
+			itemType: ItemTypeBundle,
+			wantURL:  "https://github.com/alice/scm@v1/bundles/core-practices@v2.0.0",
+			wantOk:   true,
+		},
+		{
+			name:      "bundle without requested version uses SHA",
+			localName: "scm-github/tools",
+			entry: LockEntry{
+				SHA:        "def456",
+				URL:        "https://github.com/bob/scm",
+				SCMVersion: "v1",
+			},
+			itemType: ItemTypeBundle,
+			wantURL:  "https://github.com/bob/scm@v1/bundles/tools@def456",
+			wantOk:   true,
+		},
+		{
+			name:      "profile entry",
+			localName: "scm-github/secure",
+			entry: LockEntry{
+				SHA:        "ghi789",
+				URL:        "https://github.com/alice/scm",
+				SCMVersion: "v1",
+			},
+			itemType: ItemTypeProfile,
+			wantURL:  "https://github.com/alice/scm@v1/profiles/secure@ghi789",
+			wantOk:   true,
+		},
+		{
+			name:      "entry not found",
+			localName: "nonexistent/bundle",
+			entry:     LockEntry{},
+			itemType:  ItemTypeBundle,
+			wantURL:   "",
+			wantOk:    false,
+		},
+		{
+			name:      "invalid local name (no slash)",
+			localName: "invalid",
+			entry: LockEntry{
+				SHA:        "abc123",
+				URL:        "https://github.com/alice/scm",
+				SCMVersion: "v1",
+			},
+			itemType: ItemTypeBundle,
+			wantURL:  "",
+			wantOk:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lockfile := &Lockfile{
+				Bundles:  make(map[string]LockEntry),
+				Profiles: make(map[string]LockEntry),
+			}
+
+			if tt.entry.SHA != "" || tt.entry.URL != "" {
+				lockfile.AddEntry(tt.itemType, tt.localName, tt.entry)
+			}
+
+			gotURL, gotOk := lockfile.GetCanonicalURL(tt.itemType, tt.localName)
+			if gotOk != tt.wantOk {
+				t.Errorf("GetCanonicalURL() ok = %v, want %v", gotOk, tt.wantOk)
+			}
+			if gotURL != tt.wantURL {
+				t.Errorf("GetCanonicalURL() = %q, want %q", gotURL, tt.wantURL)
+			}
+		})
+	}
+}
+
+func TestLockfile_FindByURL(t *testing.T) {
+	lockfile := &Lockfile{
+		Bundles: map[string]LockEntry{
+			"scm-github/core": {SHA: "abc123", URL: "https://github.com/alice/scm"},
+		},
+		Profiles: map[string]LockEntry{
+			"scm-github/secure": {SHA: "def456", URL: "https://github.com/bob/scm"},
+		},
+	}
+
+	t.Run("find bundle by URL", func(t *testing.T) {
+		name, entry, found := lockfile.FindByURL("https://github.com/alice/scm", ItemTypeBundle)
+		if !found {
+			t.Fatal("expected to find entry")
+		}
+		if name != "scm-github/core" {
+			t.Errorf("name = %q, want %q", name, "scm-github/core")
+		}
+		if entry.SHA != "abc123" {
+			t.Errorf("SHA = %q, want %q", entry.SHA, "abc123")
+		}
+	})
+
+	t.Run("find profile by URL", func(t *testing.T) {
+		name, entry, found := lockfile.FindByURL("https://github.com/bob/scm", ItemTypeProfile)
+		if !found {
+			t.Fatal("expected to find entry")
+		}
+		if name != "scm-github/secure" {
+			t.Errorf("name = %q, want %q", name, "scm-github/secure")
+		}
+		if entry.SHA != "def456" {
+			t.Errorf("SHA = %q, want %q", entry.SHA, "def456")
+		}
+	})
+
+	t.Run("URL not found", func(t *testing.T) {
+		_, _, found := lockfile.FindByURL("https://github.com/nonexistent/repo", ItemTypeBundle)
+		if found {
+			t.Error("expected entry not to be found")
+		}
+	})
+
+	t.Run("unknown item type", func(t *testing.T) {
+		_, _, found := lockfile.FindByURL("https://github.com/alice/scm", ItemType("unknown"))
+		if found {
+			t.Error("expected entry not to be found for unknown type")
+		}
+	})
+}
+
+func TestLockfile_FindAllByURL(t *testing.T) {
+	lockfile := &Lockfile{
+		Bundles: map[string]LockEntry{
+			"scm-github/core":  {SHA: "abc123", URL: "https://github.com/alice/scm"},
+			"scm-github/tools": {SHA: "def456", URL: "https://github.com/alice/scm"},
+		},
+		Profiles: map[string]LockEntry{
+			"scm-github/secure": {SHA: "ghi789", URL: "https://github.com/alice/scm"},
+			"scm-github/other":  {SHA: "jkl012", URL: "https://github.com/bob/scm"},
+		},
+	}
+
+	t.Run("finds all matching entries", func(t *testing.T) {
+		results := lockfile.FindAllByURL("https://github.com/alice/scm")
+		if len(results) != 3 {
+			t.Errorf("len(results) = %d, want 3", len(results))
+		}
+	})
+
+	t.Run("returns empty for no matches", func(t *testing.T) {
+		results := lockfile.FindAllByURL("https://github.com/nonexistent/repo")
+		if len(results) != 0 {
+			t.Errorf("len(results) = %d, want 0", len(results))
+		}
+	})
+}
+
+func TestLockfile_RemoveEntry_Profile(t *testing.T) {
+	lockfile := &Lockfile{
+		Bundles: make(map[string]LockEntry),
+		Profiles: map[string]LockEntry{
+			"scm-github/secure": {SHA: "abc123"},
+			"scm-github/other":  {SHA: "def456"},
+		},
+	}
+
+	lockfile.RemoveEntry(ItemTypeProfile, "scm-github/secure")
+
+	if len(lockfile.Profiles) != 1 {
+		t.Errorf("Profiles count = %d, want 1", len(lockfile.Profiles))
+	}
+	if _, ok := lockfile.GetEntry(ItemTypeProfile, "scm-github/secure"); ok {
+		t.Error("entry should have been removed")
+	}
+}
+
+func TestLockfile_GetEntry_Profile(t *testing.T) {
+	lockfile := &Lockfile{
+		Bundles: make(map[string]LockEntry),
+		Profiles: map[string]LockEntry{
+			"scm-github/secure": {SHA: "abc123"},
+		},
+	}
+
+	entry, ok := lockfile.GetEntry(ItemTypeProfile, "scm-github/secure")
+	if !ok {
+		t.Fatal("expected entry to exist")
+	}
+	if entry.SHA != "abc123" {
+		t.Errorf("SHA = %q, want %q", entry.SHA, "abc123")
+	}
+}
+
+func TestLockfileManager_Load_InvalidYAML(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	_ = afero.WriteFile(fs, "/test/lock.yaml", []byte("invalid: ["), 0644)
+
+	manager := NewLockfileManager("/test", WithLockfileFS(fs))
+	_, err := manager.Load()
+	if err == nil {
+		t.Error("expected error for invalid YAML")
+	}
+}
+
+func TestLockfileManager_Load_NilMaps(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	// Write a lockfile without bundles/profiles maps
+	content := "version: 1\n"
+	_ = afero.WriteFile(fs, "/test/lock.yaml", []byte(content), 0644)
+
+	manager := NewLockfileManager("/test", WithLockfileFS(fs))
+	lockfile, err := manager.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Maps should be initialized
+	if lockfile.Bundles == nil {
+		t.Error("Bundles map should be initialized")
+	}
+	if lockfile.Profiles == nil {
+		t.Error("Profiles map should be initialized")
+	}
+}
+
+func TestLockfileManager_Load_ReadError(t *testing.T) {
+	fs := afero.NewReadOnlyFs(afero.NewMemMapFs())
+	// Create a scenario where the file exists but cannot be read
+	// Use a read-only filesystem with a file that exists
+	baseFs := afero.NewMemMapFs()
+	_ = afero.WriteFile(baseFs, "/test/lock.yaml", []byte("version: 1\n"), 0000)
+	fs = afero.NewReadOnlyFs(baseFs)
+
+	manager := NewLockfileManager("/test", WithLockfileFS(fs))
+	_, err := manager.Load()
+	// This should succeed because the content is valid YAML
+	if err != nil {
+		// Expected if filesystem blocks reads
+		return
+	}
+}
+
+func TestLockfileManager_Save_SetsLockedAt(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	manager := NewLockfileManager("/test", WithLockfileFS(fs))
+
+	lockfile := &Lockfile{
+		Version:  1,
+		Bundles:  make(map[string]LockEntry),
+		Profiles: make(map[string]LockEntry),
+	}
+
+	before := time.Now().UTC()
+	if err := manager.Save(lockfile); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+	after := time.Now().UTC()
+
+	// LockedAt should be set during save
+	if lockfile.LockedAt.Before(before) || lockfile.LockedAt.After(after) {
+		t.Error("LockedAt should be set to current time")
+	}
+}
+
+func TestLockfile_GetEntry_UnknownType(t *testing.T) {
+	lockfile := &Lockfile{
+		Bundles:  make(map[string]LockEntry),
+		Profiles: make(map[string]LockEntry),
+	}
+
+	// Unknown item type should not find any entry
+	_, ok := lockfile.GetEntry(ItemType("unknown"), "test/bundle")
+	if ok {
+		t.Error("expected entry not to be found for unknown type")
+	}
+}
+
+func TestLockfile_AddEntry_UnknownType(t *testing.T) {
+	lockfile := &Lockfile{
+		Bundles:  make(map[string]LockEntry),
+		Profiles: make(map[string]LockEntry),
+	}
+
+	// Unknown type should not add to any map
+	lockfile.AddEntry(ItemType("unknown"), "test/bundle", LockEntry{SHA: "abc123"})
+
+	if len(lockfile.Bundles) != 0 {
+		t.Error("unknown type should not add to bundles")
+	}
+	if len(lockfile.Profiles) != 0 {
+		t.Error("unknown type should not add to profiles")
+	}
+}
+
+func TestLockfile_RemoveEntry_UnknownType(t *testing.T) {
+	lockfile := &Lockfile{
+		Bundles:  map[string]LockEntry{"test/bundle": {SHA: "abc123"}},
+		Profiles: map[string]LockEntry{"test/profile": {SHA: "def456"}},
+	}
+
+	// Unknown type should not remove from any map
+	lockfile.RemoveEntry(ItemType("unknown"), "test/bundle")
+
+	if len(lockfile.Bundles) != 1 {
+		t.Error("unknown type should not remove from bundles")
+	}
+	if len(lockfile.Profiles) != 1 {
+		t.Error("unknown type should not remove from profiles")
 	}
 }

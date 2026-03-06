@@ -13,36 +13,67 @@ import (
 
 // GitHubFetcher implements Fetcher for GitHub repositories.
 type GitHubFetcher struct {
-	client *github.Client
+	client GitHubClient
+}
+
+// GitHubFetcherOption configures a GitHubFetcher.
+type GitHubFetcherOption func(*gitHubFetcherConfig)
+
+type gitHubFetcherConfig struct {
+	httpClient *http.Client
+}
+
+// WithHTTPClient sets a custom HTTP client (for testing).
+func WithHTTPClient(client *http.Client) GitHubFetcherOption {
+	return func(c *gitHubFetcherConfig) {
+		c.httpClient = client
+	}
 }
 
 // NewGitHubFetcher creates a new GitHub fetcher.
 // If token is empty, it will try GITHUB_TOKEN env var.
-func NewGitHubFetcher(token string) *GitHubFetcher {
+func NewGitHubFetcher(token string, opts ...GitHubFetcherOption) *GitHubFetcher {
 	if token == "" {
 		token = os.Getenv("GITHUB_TOKEN")
 	}
 
+	cfg := &gitHubFetcherConfig{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
 	var httpClient *http.Client
-	if token != "" {
+	if cfg.httpClient != nil {
+		httpClient = cfg.httpClient
+	} else if token != "" {
 		httpClient = &http.Client{
 			Transport: &tokenTransport{token: token},
 		}
 	}
 
 	return &GitHubFetcher{
-		client: github.NewClient(httpClient),
+		client: newRealGitHubClient(httpClient),
 	}
+}
+
+// NewGitHubFetcherWithClient creates a GitHubFetcher with a custom client (for testing).
+func NewGitHubFetcherWithClient(client GitHubClient) *GitHubFetcher {
+	return &GitHubFetcher{client: client}
 }
 
 // tokenTransport adds authorization header to requests.
 type tokenTransport struct {
 	token string
+	base  http.RoundTripper
 }
 
 func (t *tokenTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req.Header.Set("Authorization", "Bearer "+t.token)
-	return http.DefaultTransport.RoundTrip(req)
+	base := t.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return base.RoundTrip(req)
 }
 
 // Forge returns the forge type.
@@ -57,7 +88,7 @@ func (f *GitHubFetcher) FetchFile(ctx context.Context, owner, repo, path, ref st
 		opts.Ref = ref
 	}
 
-	content, _, resp, err := f.client.Repositories.GetContents(ctx, owner, repo, path, opts)
+	content, _, resp, err := f.client.Repositories().GetContents(ctx, owner, repo, path, opts)
 	if err != nil {
 		if resp != nil && resp.StatusCode == http.StatusNotFound {
 			return nil, fmt.Errorf("file not found: %s/%s/%s", owner, repo, path)
@@ -85,7 +116,7 @@ func (f *GitHubFetcher) ListDir(ctx context.Context, owner, repo, path, ref stri
 		opts.Ref = ref
 	}
 
-	_, dirContents, resp, err := f.client.Repositories.GetContents(ctx, owner, repo, path, opts)
+	_, dirContents, resp, err := f.client.Repositories().GetContents(ctx, owner, repo, path, opts)
 	if err != nil {
 		if resp != nil && resp.StatusCode == http.StatusNotFound {
 			return nil, fmt.Errorf("directory not found: %s/%s/%s", owner, repo, path)
@@ -111,26 +142,26 @@ func (f *GitHubFetcher) ListDir(ctx context.Context, owner, repo, path, ref stri
 func (f *GitHubFetcher) ResolveRef(ctx context.Context, owner, repo, ref string) (string, error) {
 	// Try as a commit SHA first (if it looks like one)
 	if len(ref) >= 7 && len(ref) <= 40 {
-		commit, _, err := f.client.Repositories.GetCommit(ctx, owner, repo, ref, nil)
+		commit, _, err := f.client.Repositories().GetCommit(ctx, owner, repo, ref, nil)
 		if err == nil {
 			return commit.GetSHA(), nil
 		}
 	}
 
 	// Try as a branch
-	branch, resp, err := f.client.Repositories.GetBranch(ctx, owner, repo, ref, 0)
+	branch, resp, err := f.client.Repositories().GetBranch(ctx, owner, repo, ref, 0)
 	if err == nil {
 		return branch.GetCommit().GetSHA(), nil
 	}
 
 	// Try as a tag
 	if resp != nil && resp.StatusCode == http.StatusNotFound {
-		tagRef, _, err := f.client.Git.GetRef(ctx, owner, repo, "tags/"+ref)
+		tagRef, _, err := f.client.Git().GetRef(ctx, owner, repo, "tags/"+ref)
 		if err == nil {
 			// Tag might be annotated (points to tag object) or lightweight (points to commit)
 			if tagRef.GetObject().GetType() == "tag" {
 				// Annotated tag - get the commit it points to
-				tag, _, err := f.client.Git.GetTag(ctx, owner, repo, tagRef.GetObject().GetSHA())
+				tag, _, err := f.client.Git().GetTag(ctx, owner, repo, tagRef.GetObject().GetSHA())
 				if err != nil {
 					return "", fmt.Errorf("failed to resolve annotated tag: %w", err)
 				}
@@ -163,7 +194,7 @@ func (f *GitHubFetcher) SearchRepos(ctx context.Context, query string, limit int
 		},
 	}
 
-	result, _, err := f.client.Search.Repositories(ctx, searchQuery, opts)
+	result, _, err := f.client.Search().Repositories(ctx, searchQuery, opts)
 	if err != nil {
 		return nil, fmt.Errorf("search failed: %w", err)
 	}
@@ -195,7 +226,7 @@ func (f *GitHubFetcher) SearchRepos(ctx context.Context, query string, limit int
 // ValidateRepo checks if a repository has valid SCM structure.
 func (f *GitHubFetcher) ValidateRepo(ctx context.Context, owner, repo string) (bool, error) {
 	// Check for scm/v1/ directory
-	_, _, resp, err := f.client.Repositories.GetContents(ctx, owner, repo, "scm/v1", nil)
+	_, _, resp, err := f.client.Repositories().GetContents(ctx, owner, repo, "scm/v1", nil)
 	if err != nil {
 		if resp != nil && resp.StatusCode == http.StatusNotFound {
 			return false, nil
@@ -207,7 +238,7 @@ func (f *GitHubFetcher) ValidateRepo(ctx context.Context, owner, repo string) (b
 
 // GetDefaultBranch returns the default branch name.
 func (f *GitHubFetcher) GetDefaultBranch(ctx context.Context, owner, repo string) (string, error) {
-	r, _, err := f.client.Repositories.Get(ctx, owner, repo)
+	r, _, err := f.client.Repositories().Get(ctx, owner, repo)
 	if err != nil {
 		return "", fmt.Errorf("failed to get repo info: %w", err)
 	}
@@ -216,7 +247,7 @@ func (f *GitHubFetcher) GetDefaultBranch(ctx context.Context, owner, repo string
 
 // GitHubPublisher implements Publisher for GitHub repositories.
 type GitHubPublisher struct {
-	client *github.Client
+	client GitHubClient
 }
 
 // NewGitHubPublisher creates a new GitHub publisher.
@@ -233,8 +264,13 @@ func NewGitHubPublisher(token string) *GitHubPublisher {
 	}
 
 	return &GitHubPublisher{
-		client: github.NewClient(httpClient),
+		client: newRealGitHubClient(httpClient),
 	}
+}
+
+// NewGitHubPublisherWithClient creates a GitHubPublisher with a custom client (for testing).
+func NewGitHubPublisherWithClient(client GitHubClient) *GitHubPublisher {
+	return &GitHubPublisher{client: client}
 }
 
 // CreateOrUpdateFile creates or updates a file in a repository.
@@ -252,7 +288,7 @@ func (p *GitHubPublisher) CreateOrUpdateFile(ctx context.Context, owner, repo, p
 		opts.SHA = github.String(existingSHA)
 	}
 
-	result, _, err := p.client.Repositories.CreateFile(ctx, owner, repo, path, opts)
+	result, _, err := p.client.Repositories().CreateFile(ctx, owner, repo, path, opts)
 	if err != nil {
 		return "", fmt.Errorf("failed to create/update file: %w", err)
 	}
@@ -262,7 +298,7 @@ func (p *GitHubPublisher) CreateOrUpdateFile(ctx context.Context, owner, repo, p
 
 // CreatePullRequest creates a pull request.
 func (p *GitHubPublisher) CreatePullRequest(ctx context.Context, owner, repo, title, body, head, base string) (string, error) {
-	pr, _, err := p.client.PullRequests.Create(ctx, owner, repo, &github.NewPullRequest{
+	pr, _, err := p.client.PullRequests().Create(ctx, owner, repo, &github.NewPullRequest{
 		Title: github.String(title),
 		Body:  github.String(body),
 		Head:  github.String(head),
@@ -284,7 +320,7 @@ func (p *GitHubPublisher) CreateBranch(ctx context.Context, owner, repo, branchN
 		},
 	}
 
-	_, _, err := p.client.Git.CreateRef(ctx, owner, repo, ref)
+	_, _, err := p.client.Git().CreateRef(ctx, owner, repo, ref)
 	if err != nil {
 		return fmt.Errorf("failed to create branch: %w", err)
 	}
@@ -299,7 +335,7 @@ func (p *GitHubPublisher) GetFileSHA(ctx context.Context, owner, repo, path, ref
 		opts.Ref = ref
 	}
 
-	content, _, resp, err := p.client.Repositories.GetContents(ctx, owner, repo, path, opts)
+	content, _, resp, err := p.client.Repositories().GetContents(ctx, owner, repo, path, opts)
 	if err != nil {
 		if resp != nil && resp.StatusCode == http.StatusNotFound {
 			return "", nil // File doesn't exist

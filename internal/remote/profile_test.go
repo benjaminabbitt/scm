@@ -1,7 +1,14 @@
 package remote
 
 import (
+	"bytes"
+	"context"
+	"strings"
 	"testing"
+
+	"github.com/spf13/afero"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseProfileRefs(t *testing.T) {
@@ -99,4 +106,208 @@ func TestRemoteRef_Fields(t *testing.T) {
 	if ref.Cached {
 		t.Error("Cached should be false")
 	}
+}
+
+func TestNewProfileDeps(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	registry, _ := NewRegistry("", WithRegistryFS(fs))
+
+	t.Run("creates with defaults", func(t *testing.T) {
+		deps := NewProfileDeps(registry, AuthConfig{})
+		assert.NotNil(t, deps)
+		assert.NotNil(t, deps.puller)
+		assert.NotNil(t, deps.fs)
+		assert.Equal(t, registry, deps.registry)
+	})
+
+	t.Run("accepts custom filesystem", func(t *testing.T) {
+		customFS := afero.NewMemMapFs()
+		deps := NewProfileDeps(registry, AuthConfig{}, WithProfileDepsFS(customFS))
+		assert.Equal(t, customFS, deps.fs)
+	})
+
+	t.Run("accepts custom puller", func(t *testing.T) {
+		customPuller := NewPuller(registry, AuthConfig{})
+		deps := NewProfileDeps(registry, AuthConfig{}, WithProfileDepsPuller(customPuller))
+		assert.Equal(t, customPuller, deps.puller)
+	})
+}
+
+func TestProfileDeps_CheckCached(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	registry, _ := NewRegistry("", WithRegistryFS(fs))
+
+	t.Run("marks cached refs", func(t *testing.T) {
+		// Create a cached bundle file
+		require.NoError(t, fs.MkdirAll("/test/bundles/alice", 0755))
+		require.NoError(t, afero.WriteFile(fs, "/test/bundles/alice/security.yaml", []byte("test\n"), 0644))
+
+		deps := NewProfileDeps(registry, AuthConfig{}, WithProfileDepsFS(fs))
+
+		refs := []RemoteRef{
+			{Ref: "alice/security", ItemType: ItemTypeBundle, Cached: false},
+			{Ref: "bob/golang", ItemType: ItemTypeBundle, Cached: false},
+		}
+
+		result := deps.CheckCached(refs, "/test")
+
+		// alice/security should be marked as cached
+		assert.True(t, result[0].Cached)
+		// bob/golang should not be cached
+		assert.False(t, result[1].Cached)
+	})
+
+	t.Run("uses default base dir", func(t *testing.T) {
+		require.NoError(t, fs.MkdirAll(".scm/bundles/alice", 0755))
+		require.NoError(t, afero.WriteFile(fs, ".scm/bundles/alice/security.yaml", []byte("test\n"), 0644))
+
+		deps := NewProfileDeps(registry, AuthConfig{}, WithProfileDepsFS(fs))
+
+		refs := []RemoteRef{
+			{Ref: "alice/security", ItemType: ItemTypeBundle, Cached: false},
+		}
+
+		result := deps.CheckCached(refs, "")
+		assert.True(t, result[0].Cached)
+	})
+
+	t.Run("handles invalid refs gracefully", func(t *testing.T) {
+		deps := NewProfileDeps(registry, AuthConfig{}, WithProfileDepsFS(fs))
+
+		refs := []RemoteRef{
+			{Ref: "invalid", ItemType: ItemTypeBundle, Cached: false}, // Not a valid remote ref
+		}
+
+		result := deps.CheckCached(refs, "/test")
+		assert.False(t, result[0].Cached)
+	})
+}
+
+func TestProfileDeps_PullDeps(t *testing.T) {
+	t.Run("returns early for no uncached deps", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		registry, _ := NewRegistry("", WithRegistryFS(fs))
+
+		deps := NewProfileDeps(registry, AuthConfig{}, WithProfileDepsFS(fs))
+
+		refs := []RemoteRef{
+			{Ref: "alice/security", ItemType: ItemTypeBundle, Cached: true},
+		}
+
+		var buf bytes.Buffer
+		result, err := deps.PullDeps(context.Background(), refs, PullOptions{
+			Stdout: &buf,
+			Stdin:  strings.NewReader(""),
+		})
+
+		require.NoError(t, err)
+		assert.Empty(t, result.Pulled)
+		assert.Empty(t, result.Failed)
+		assert.Empty(t, result.Skipped)
+	})
+
+	t.Run("pulls uncached deps", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+
+		// Create registry with remote
+		require.NoError(t, fs.MkdirAll("/test", 0755))
+		registry, _ := NewRegistry("/test/remotes.yaml", WithRegistryFS(fs))
+		require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+
+		// Create mock fetcher
+		mf := newMockFetcher()
+		mf.files["scm/v1/bundles/security.yaml"] = []byte("description: Security\n")
+		mf.refs["main"] = "abc123"
+
+		// Create puller with mocked dependencies
+		tc := &mockTerminalChecker{isReader: true}
+		puller := NewPuller(registry, AuthConfig{},
+			WithPullerFS(fs),
+			WithTerminalChecker(tc),
+			WithFetcherFactory(mockFetcherFactory(mf)),
+		)
+
+		deps := NewProfileDeps(registry, AuthConfig{},
+			WithProfileDepsFS(fs),
+			WithProfileDepsPuller(puller),
+		)
+
+		refs := []RemoteRef{
+			{Ref: "alice/security", ItemType: ItemTypeBundle, Cached: false},
+		}
+
+		var buf bytes.Buffer
+		result, err := deps.PullDeps(context.Background(), refs, PullOptions{
+			Force:    true,
+			LocalDir: "/test",
+			Stdout:   &buf,
+			Stdin:    strings.NewReader("y\n"),
+		})
+
+		require.NoError(t, err)
+		assert.Len(t, result.Pulled, 1)
+		assert.Contains(t, result.Pulled[0], "alice/security")
+	})
+
+	t.Run("tracks failed pulls", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+
+		require.NoError(t, fs.MkdirAll("/test", 0755))
+		registry, _ := NewRegistry("/test/remotes.yaml", WithRegistryFS(fs))
+		require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+
+		// Mock fetcher that returns file not found
+		mf := newMockFetcher()
+		// Note: not setting the file so fetch will fail
+
+		tc := &mockTerminalChecker{isReader: true}
+		puller := NewPuller(registry, AuthConfig{},
+			WithPullerFS(fs),
+			WithTerminalChecker(tc),
+			WithFetcherFactory(mockFetcherFactory(mf)),
+		)
+
+		deps := NewProfileDeps(registry, AuthConfig{},
+			WithProfileDepsFS(fs),
+			WithProfileDepsPuller(puller),
+		)
+
+		refs := []RemoteRef{
+			{Ref: "alice/security", ItemType: ItemTypeBundle, Cached: false},
+		}
+
+		var buf bytes.Buffer
+		result, err := deps.PullDeps(context.Background(), refs, PullOptions{
+			Force:    true,
+			LocalDir: "/test",
+			Stdout:   &buf,
+			Stdin:    strings.NewReader(""),
+		})
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to pull")
+		assert.Len(t, result.Failed, 1)
+	})
+}
+
+func TestResolveProfileDeps(t *testing.T) {
+	t.Run("returns nil for empty bundles", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		registry, _ := NewRegistry("", WithRegistryFS(fs))
+
+		err := ResolveProfileDeps(context.Background(), []string{}, registry, AuthConfig{}, nil, nil)
+		require.NoError(t, err)
+	})
+
+	t.Run("returns nil for only local bundles", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		registry, _ := NewRegistry("", WithRegistryFS(fs))
+
+		err := ResolveProfileDeps(context.Background(), []string{"local-bundle"}, registry, AuthConfig{}, nil, nil)
+		require.NoError(t, err)
+	})
+
+	// Note: Testing "all remote bundles are cached" is difficult for ResolveProfileDeps
+	// because it creates its own ProfileDeps with OS filesystem. For full coverage,
+	// use ProfileDeps directly with WithProfileDepsFS option.
 }
