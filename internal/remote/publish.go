@@ -3,11 +3,11 @@ package remote
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 )
 
@@ -29,6 +29,78 @@ type Publisher interface {
 	GetFileSHA(ctx context.Context, owner, repo, path, ref string) (string, error)
 }
 
+// PublisherFactory creates Publisher instances. Allows mocking for tests.
+type PublisherFactory func(repoURL string, auth AuthConfig) (Publisher, error)
+
+// defaultPublisherFactory is the production implementation.
+func defaultPublisherFactory(repoURL string, auth AuthConfig) (Publisher, error) {
+	return NewPublisher(repoURL, auth)
+}
+
+// PublishManager handles publish operations with injectable dependencies.
+type PublishManager struct {
+	registry         *Registry
+	auth             AuthConfig
+	publisherFactory PublisherFactory
+	fetcherFactory   FetcherFactory
+	lockfileManager  *LockfileManager
+	fs               afero.Fs
+}
+
+// PublishManagerOption configures a PublishManager.
+type PublishManagerOption func(*PublishManager)
+
+// WithPublishFS sets a custom filesystem for the publish manager.
+func WithPublishFS(fs afero.Fs) PublishManagerOption {
+	return func(pm *PublishManager) {
+		pm.fs = fs
+	}
+}
+
+// WithPublisherFactory sets a custom publisher factory (for testing).
+func WithPublisherFactory(pf PublisherFactory) PublishManagerOption {
+	return func(pm *PublishManager) {
+		pm.publisherFactory = pf
+	}
+}
+
+// WithPublishFetcherFactory sets a custom fetcher factory (for testing).
+func WithPublishFetcherFactory(ff FetcherFactory) PublishManagerOption {
+	return func(pm *PublishManager) {
+		pm.fetcherFactory = ff
+	}
+}
+
+// WithPublishLockfileManager sets a custom lockfile manager (for testing).
+func WithPublishLockfileManager(lm *LockfileManager) PublishManagerOption {
+	return func(pm *PublishManager) {
+		pm.lockfileManager = lm
+	}
+}
+
+// NewPublishManager creates a new publish manager.
+func NewPublishManager(registry *Registry, auth AuthConfig, opts ...PublishManagerOption) *PublishManager {
+	pm := &PublishManager{
+		registry:         registry,
+		auth:             auth,
+		publisherFactory: defaultPublisherFactory,
+		fetcherFactory:   defaultFetcherFactory,
+		fs:               afero.NewOsFs(),
+	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(pm)
+	}
+
+	// Initialize defaults for nil dependencies
+	if pm.lockfileManager == nil {
+		pm.lockfileManager = NewLockfileManager(".scm")
+	}
+
+	return pm
+}
+
 // PublishOptions configures publish behavior.
 type PublishOptions struct {
 	// CreatePR creates a pull request instead of pushing directly.
@@ -48,6 +120,9 @@ type PublishOptions struct {
 
 	// Version is the SCM version directory (e.g., "v1").
 	Version string
+
+	// FS is the filesystem to use (defaults to OS filesystem if nil).
+	FS afero.Fs
 }
 
 // PublishResult contains the result of a publish operation.
@@ -66,29 +141,35 @@ type PublishResult struct {
 }
 
 // Publish publishes a local item to a remote repository.
-func Publish(ctx context.Context, localPath string, remoteName string, opts PublishOptions, registry *Registry, auth AuthConfig) (*PublishResult, error) {
+func (pm *PublishManager) Publish(ctx context.Context, localPath string, remoteName string, opts PublishOptions) (*PublishResult, error) {
+	// Use provided filesystem or manager's default
+	fs := opts.FS
+	if fs == nil {
+		fs = pm.fs
+	}
+
 	// Read local content
-	content, err := os.ReadFile(localPath)
+	content, err := afero.ReadFile(fs, localPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read local file: %w", err)
 	}
 
 	// Transform profile content if needed (convert local names to canonical URLs)
 	if opts.ItemType == ItemTypeProfile {
-		content, err = transformProfileForExport(content)
+		content, err = transformProfileForExport(content, pm.lockfileManager)
 		if err != nil {
 			return nil, fmt.Errorf("failed to transform profile for export: %w", err)
 		}
 	}
 
 	// Get remote configuration
-	rem, err := registry.Get(remoteName)
+	rem, err := pm.registry.Get(remoteName)
 	if err != nil {
 		return nil, fmt.Errorf("remote not found: %w", err)
 	}
 
 	// Create publisher
-	publisher, err := NewPublisher(rem.URL, auth)
+	publisher, err := pm.publisherFactory(rem.URL, pm.auth)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create publisher: %w", err)
 	}
@@ -116,7 +197,7 @@ func Publish(ctx context.Context, localPath string, remoteName string, opts Publ
 	// Get default branch if not specified
 	branch := opts.Branch
 	if branch == "" {
-		fetcher, err := NewFetcher(rem.URL, auth)
+		fetcher, err := pm.fetcherFactory(rem.URL, pm.auth)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create fetcher: %w", err)
 		}
@@ -153,7 +234,7 @@ func Publish(ctx context.Context, localPath string, remoteName string, opts Publ
 		branchName := fmt.Sprintf("scm/%s/%s-%d", opts.ItemType, itemName, time.Now().Unix())
 
 		// Get base SHA for branch creation
-		fetcher, err := NewFetcher(rem.URL, auth)
+		fetcher, err := pm.fetcherFactory(rem.URL, pm.auth)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create fetcher: %w", err)
 		}
@@ -202,6 +283,13 @@ func Publish(ctx context.Context, localPath string, remoteName string, opts Publ
 	}
 
 	return result, nil
+}
+
+// Publish is a convenience function that creates a PublishManager and publishes.
+// Deprecated: Use NewPublishManager and the Publish method for better testability.
+func Publish(ctx context.Context, localPath string, remoteName string, opts PublishOptions, registry *Registry, auth AuthConfig) (*PublishResult, error) {
+	pm := NewPublishManager(registry, auth, WithPublishFS(opts.FS))
+	return pm.Publish(ctx, localPath, remoteName, opts)
 }
 
 // buildPublishPath constructs the remote file path for an item.
@@ -255,7 +343,7 @@ func NewPublisher(repoURL string, auth AuthConfig) (Publisher, error) {
 
 // transformProfileForExport converts local bundle references to canonical URLs.
 // This is used when publishing/exporting a profile for sharing.
-func transformProfileForExport(content []byte) ([]byte, error) {
+func transformProfileForExport(content []byte, lm *LockfileManager) ([]byte, error) {
 	// Parse the profile
 	var rawProfile map[string]interface{}
 	if err := yaml.Unmarshal(content, &rawProfile); err != nil {
@@ -294,8 +382,7 @@ func transformProfileForExport(content []byte) ([]byte, error) {
 	}
 
 	// Load lockfile to get canonical URLs
-	lockfileManager := NewLockfileManager(".scm")
-	lockfile, err := lockfileManager.Load()
+	lockfile, err := lm.Load()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load lockfile: %w", err)
 	}

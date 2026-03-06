@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"github.com/spf13/afero"
 )
 
 // ProfileDeps handles remote dependencies in profiles.
@@ -13,15 +15,45 @@ type ProfileDeps struct {
 	registry *Registry
 	auth     AuthConfig
 	puller   *Puller
+	fs       afero.Fs
+}
+
+// ProfileDepsOption is a functional option for configuring ProfileDeps.
+type ProfileDepsOption func(*ProfileDeps)
+
+// WithProfileDepsFS sets a custom filesystem implementation (for testing).
+func WithProfileDepsFS(fs afero.Fs) ProfileDepsOption {
+	return func(p *ProfileDeps) {
+		p.fs = fs
+	}
+}
+
+// WithProfileDepsPuller sets a custom puller (for testing).
+func WithProfileDepsPuller(puller *Puller) ProfileDepsOption {
+	return func(p *ProfileDeps) {
+		p.puller = puller
+	}
 }
 
 // NewProfileDeps creates a new profile dependency handler.
-func NewProfileDeps(registry *Registry, auth AuthConfig) *ProfileDeps {
-	return &ProfileDeps{
+func NewProfileDeps(registry *Registry, auth AuthConfig, opts ...ProfileDepsOption) *ProfileDeps {
+	p := &ProfileDeps{
 		registry: registry,
 		auth:     auth,
-		puller:   NewPuller(registry, auth),
+		fs:       afero.NewOsFs(),
 	}
+
+	// Apply options first to allow overrides
+	for _, opt := range opts {
+		opt(p)
+	}
+
+	// Create default puller if not provided
+	if p.puller == nil {
+		p.puller = NewPuller(registry, auth)
+	}
+
+	return p
 }
 
 // RemoteRef represents a remote reference in a profile.
@@ -63,7 +95,7 @@ func (p *ProfileDeps) CheckCached(refs []RemoteRef, baseDir string) []RemoteRef 
 		}
 
 		localPath := ref.LocalPath(baseDir, refs[i].ItemType)
-		if _, err := os.Stat(localPath); err == nil {
+		if _, err := p.fs.Stat(localPath); err == nil {
 			refs[i].Cached = true
 		}
 	}

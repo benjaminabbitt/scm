@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/afero"
 	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
 )
@@ -54,6 +55,37 @@ type profileYAML struct {
 	Bundles []string `yaml:"bundles"`
 }
 
+// FetcherFactory creates Fetcher instances. Allows mocking for tests.
+type FetcherFactory func(repoURL string, auth AuthConfig) (Fetcher, error)
+
+// defaultFetcherFactory is the production implementation.
+func defaultFetcherFactory(repoURL string, auth AuthConfig) (Fetcher, error) {
+	return NewFetcher(repoURL, auth)
+}
+
+// TerminalChecker checks if readers/writers are terminals.
+type TerminalChecker interface {
+	IsTerminalReader(r io.Reader) bool
+	IsTerminalWriter(w io.Writer) bool
+}
+
+// defaultTerminalChecker uses os/term for real terminal detection.
+type defaultTerminalChecker struct{}
+
+func (d *defaultTerminalChecker) IsTerminalReader(r io.Reader) bool {
+	if f, ok := r.(*os.File); ok {
+		return term.IsTerminal(int(f.Fd()))
+	}
+	return false
+}
+
+func (d *defaultTerminalChecker) IsTerminalWriter(w io.Writer) bool {
+	if f, ok := w.(*os.File); ok {
+		return term.IsTerminal(int(f.Fd()))
+	}
+	return false
+}
+
 // Puller handles pulling items from remotes.
 type Puller struct {
 	registry        *Registry
@@ -61,18 +93,83 @@ type Puller struct {
 	replaceManager  *ReplaceManager
 	vendorManager   *VendorManager
 	lockfileManager *LockfileManager
+	fetcherFactory  FetcherFactory
+	terminalChecker TerminalChecker
+	fs              afero.Fs
+}
+
+// PullerOption is a functional option for configuring a Puller.
+type PullerOption func(*Puller)
+
+// WithPullerFS sets a custom filesystem implementation (for testing).
+func WithPullerFS(fs afero.Fs) PullerOption {
+	return func(p *Puller) {
+		p.fs = fs
+	}
+}
+
+// WithReplaceManager sets a custom replace manager (for testing).
+func WithReplaceManager(rm *ReplaceManager) PullerOption {
+	return func(p *Puller) {
+		p.replaceManager = rm
+	}
+}
+
+// WithVendorManager sets a custom vendor manager (for testing).
+func WithVendorManager(vm *VendorManager) PullerOption {
+	return func(p *Puller) {
+		p.vendorManager = vm
+	}
+}
+
+// WithLockfileManager sets a custom lockfile manager (for testing).
+func WithLockfileManager(lm *LockfileManager) PullerOption {
+	return func(p *Puller) {
+		p.lockfileManager = lm
+	}
+}
+
+// WithFetcherFactory sets a custom fetcher factory (for testing).
+func WithFetcherFactory(ff FetcherFactory) PullerOption {
+	return func(p *Puller) {
+		p.fetcherFactory = ff
+	}
+}
+
+// WithTerminalChecker sets a custom terminal checker (for testing).
+func WithTerminalChecker(tc TerminalChecker) PullerOption {
+	return func(p *Puller) {
+		p.terminalChecker = tc
+	}
 }
 
 // NewPuller creates a new puller.
-func NewPuller(registry *Registry, auth AuthConfig) *Puller {
-	replaceManager, _ := NewReplaceManager("")
-	return &Puller{
+func NewPuller(registry *Registry, auth AuthConfig, opts ...PullerOption) *Puller {
+	p := &Puller{
 		registry:        registry,
 		auth:            auth,
-		replaceManager:  replaceManager,
-		vendorManager:   NewVendorManager(".scm"),
-		lockfileManager: NewLockfileManager(".scm"),
+		fetcherFactory:  defaultFetcherFactory,
+		terminalChecker: &defaultTerminalChecker{},
+		fs:              afero.NewOsFs(),
 	}
+
+	// Apply options first to allow overrides
+	for _, opt := range opts {
+		opt(p)
+	}
+
+	// Initialize defaults for nil dependencies (allows tests to override)
+	if p.replaceManager == nil {
+		p.replaceManager, _ = NewReplaceManager("")
+	}
+	if p.vendorManager == nil {
+		p.vendorManager = NewVendorManager(".scm")
+	}
+	if p.lockfileManager == nil {
+		p.lockfileManager = NewLockfileManager(".scm")
+	}
+
+	return p
 }
 
 // Pull downloads an item from a remote with security review.
@@ -159,7 +256,7 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 	}
 
 	// Create fetcher
-	fetcher, err := NewFetcher(repoURL, p.auth)
+	fetcher, err := p.fetcherFactory(repoURL, p.auth)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create fetcher: %w", err)
 	}
@@ -210,7 +307,7 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 	}
 
 	// Require interactive terminal unless force
-	if !opts.Force && !isTerminal(opts.Stdin) {
+	if !opts.Force && !p.terminalChecker.IsTerminalReader(opts.Stdin) {
 		return nil, fmt.Errorf("interactive terminal required for pull; use --force to skip confirmation")
 	}
 
@@ -226,7 +323,7 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 		return nil, fmt.Errorf("failed to parse content: %w", err)
 	}
 
-	displaySecurityWarning(opts.Stdout, ref, rem, shortSHA, filePath, content, secure)
+	displaySecurityWarning(opts.Stdout, ref, rem, shortSHA, filePath, content, secure, p.terminalChecker)
 
 	// Prompt for confirmation unless force
 	if !opts.Force {
@@ -257,10 +354,10 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 
 	// Check for existing file
 	overwritten := false
-	if _, err := os.Stat(localPath); err == nil {
+	if _, err := p.fs.Stat(localPath); err == nil {
 		overwritten = true
 		// Show diff
-		existingContent, _ := os.ReadFile(localPath)
+		existingContent, _ := afero.ReadFile(p.fs, localPath)
 		if string(existingContent) != string(content) {
 			fmt.Fprintln(opts.Stdout, "\n--- Existing file differs ---")
 			fmt.Fprintln(opts.Stdout, "Use a diff tool to compare if needed.")
@@ -277,11 +374,11 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 	}
 
 	// Write file
-	if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
+	if err := p.fs.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
 		return nil, fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	if err := os.WriteFile(localPath, content, 0644); err != nil {
+	if err := afero.WriteFile(p.fs, localPath, content, 0644); err != nil {
 		return nil, fmt.Errorf("failed to write file: %w", err)
 	}
 
@@ -341,7 +438,7 @@ func (p *Puller) cascadePullProfile(ctx context.Context, profileContent []byte, 
 		}
 		localPath := ref.LocalPath(baseDir, ItemTypeBundle)
 
-		if _, err := os.Stat(localPath); err == nil {
+		if _, err := p.fs.Stat(localPath); err == nil {
 			fmt.Fprintf(opts.Stdout, "  [cached] %s\n", bundleRef)
 			continue
 		}
@@ -374,7 +471,7 @@ func (p *Puller) cascadePullProfile(ctx context.Context, profileContent []byte, 
 }
 
 // displaySecurityWarning shows the security warning and full content.
-func displaySecurityWarning(w io.Writer, ref *Reference, rem *Remote, sha, filePath string, content []byte, secure SecureContent) {
+func displaySecurityWarning(w io.Writer, ref *Reference, rem *Remote, sha, filePath string, content []byte, secure SecureContent, tc TerminalChecker) {
 	warning := secure.SecurityWarning()
 
 	fmt.Fprintln(w, "")
@@ -417,7 +514,7 @@ func displaySecurityWarning(w io.Writer, ref *Reference, rem *Remote, sha, fileP
 	fmt.Fprintln(w, "─────────────────── CONTENT START ───────────────────")
 
 	// Use pager for long content if terminal
-	if lineCount > 50 && isTerminalWriter(w) {
+	if lineCount > 50 && tc.IsTerminalWriter(w) {
 		pager := os.Getenv("PAGER")
 		if pager == "" {
 			pager = "less"
@@ -458,21 +555,6 @@ func promptConfirmation(w io.Writer, r io.Reader, prompt string) (bool, error) {
 	return response == "y" || response == "yes", nil
 }
 
-// isTerminal checks if the reader is a terminal.
-func isTerminal(r io.Reader) bool {
-	if f, ok := r.(*os.File); ok {
-		return term.IsTerminal(int(f.Fd()))
-	}
-	return false
-}
-
-// isTerminalWriter checks if the writer is a terminal.
-func isTerminalWriter(w io.Writer) bool {
-	if f, ok := w.(*os.File); ok {
-		return term.IsTerminal(int(f.Fd()))
-	}
-	return false
-}
 
 // writeContent writes content to the local path (used for replace directive).
 func (p *Puller) writeContent(ref *Reference, opts PullOptions, content []byte, sha string) error {
@@ -483,11 +565,11 @@ func (p *Puller) writeContent(ref *Reference, opts PullOptions, content []byte, 
 
 	localPath := ref.LocalPath(baseDir, opts.ItemType)
 
-	if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
+	if err := p.fs.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	return os.WriteFile(localPath, content, 0644)
+	return afero.WriteFile(p.fs, localPath, content, 0644)
 }
 
 // updateLockfile records provenance in the lockfile.

@@ -1,9 +1,14 @@
 package remote
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/spf13/afero"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestVendorManager_VendorDir(t *testing.T) {
@@ -148,4 +153,171 @@ func TestVendorManager_DifferentItemTypes(t *testing.T) {
 			t.Errorf("content for %s = %q, want %q", itemType, string(content), string(itemType))
 		}
 	}
+}
+
+func TestVendorManager_IsVendored(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	manager := NewVendorManager(".scm", WithVendorFS(fs))
+
+	t.Run("returns false when no config exists", func(t *testing.T) {
+		assert.False(t, manager.IsVendored())
+	})
+
+	t.Run("returns false when vendor not set", func(t *testing.T) {
+		require.NoError(t, fs.MkdirAll(".scm", 0755))
+		require.NoError(t, afero.WriteFile(fs, ".scm/remotes.yaml", []byte("remotes: {}\n"), 0644))
+
+		assert.False(t, manager.IsVendored())
+	})
+
+	t.Run("returns true when vendor enabled", func(t *testing.T) {
+		require.NoError(t, afero.WriteFile(fs, ".scm/remotes.yaml", []byte("vendor: true\n"), 0644))
+
+		assert.True(t, manager.IsVendored())
+	})
+
+	t.Run("returns false for invalid YAML", func(t *testing.T) {
+		require.NoError(t, afero.WriteFile(fs, ".scm/remotes.yaml", []byte("invalid: yaml: [["), 0644))
+
+		assert.False(t, manager.IsVendored())
+	})
+}
+
+func TestVendorManager_SetVendorMode(t *testing.T) {
+	t.Run("enables vendor mode", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		manager := NewVendorManager(".scm", WithVendorFS(fs))
+
+		err := manager.SetVendorMode(true)
+		require.NoError(t, err)
+
+		content, err := afero.ReadFile(fs, ".scm/remotes.yaml")
+		require.NoError(t, err)
+		assert.Contains(t, string(content), "vendor: true")
+	})
+
+	t.Run("disables vendor mode", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		require.NoError(t, fs.MkdirAll(".scm", 0755))
+		require.NoError(t, afero.WriteFile(fs, ".scm/remotes.yaml", []byte("vendor: true\nremotes: {}\n"), 0644))
+
+		manager := NewVendorManager(".scm", WithVendorFS(fs))
+
+		err := manager.SetVendorMode(false)
+		require.NoError(t, err)
+
+		content, err := afero.ReadFile(fs, ".scm/remotes.yaml")
+		require.NoError(t, err)
+		assert.NotContains(t, string(content), "vendor")
+	})
+
+	t.Run("preserves existing config", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		require.NoError(t, fs.MkdirAll(".scm", 0755))
+		require.NoError(t, afero.WriteFile(fs, ".scm/remotes.yaml", []byte("remotes:\n  alice:\n    url: https://github.com/alice/scm\n"), 0644))
+
+		manager := NewVendorManager(".scm", WithVendorFS(fs))
+
+		err := manager.SetVendorMode(true)
+		require.NoError(t, err)
+
+		content, err := afero.ReadFile(fs, ".scm/remotes.yaml")
+		require.NoError(t, err)
+		assert.Contains(t, string(content), "vendor: true")
+		assert.Contains(t, string(content), "remotes")
+	})
+}
+
+func TestVendorManager_VendorAll(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("vendors all lockfile entries", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+
+		// Create registry with remote
+		require.NoError(t, fs.MkdirAll("/test", 0755))
+		registry, err := NewRegistry("/test/remotes.yaml", WithRegistryFS(fs))
+		require.NoError(t, err)
+		require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+
+		// Create mock fetcher
+		mf := newMockFetcher()
+		mf.files["scm/v1/bundles/security.yaml"] = []byte("description: Security bundle\n")
+
+		manager := NewVendorManager("/test",
+			WithVendorFS(fs),
+			WithVendorFetcherFactory(mockFetcherFactory(mf)),
+		)
+
+		// Create lockfile
+		lockfile := &Lockfile{
+			Version: 1,
+			Bundles: map[string]LockEntry{
+				"alice/security": {
+					SHA:        "abc123",
+					URL:        "https://github.com/alice/scm",
+					SCMVersion: "v1",
+				},
+			},
+			Profiles: make(map[string]LockEntry),
+		}
+
+		err = manager.VendorAll(ctx, lockfile, registry, AuthConfig{})
+		require.NoError(t, err)
+
+		// Verify vendored file exists
+		vendorPath := filepath.Join("/test", "vendor", "bundles", "alice", "security.yaml")
+		exists, err := afero.Exists(fs, vendorPath)
+		require.NoError(t, err)
+		assert.True(t, exists)
+
+		// Verify content
+		content, err := afero.ReadFile(fs, vendorPath)
+		require.NoError(t, err)
+		assert.Contains(t, string(content), "Security bundle")
+	})
+
+	t.Run("returns error for empty lockfile", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		registry, _ := NewRegistry("", WithRegistryFS(fs))
+		manager := NewVendorManager("/test", WithVendorFS(fs))
+
+		lockfile := &Lockfile{
+			Version:  1,
+			Bundles:  make(map[string]LockEntry),
+			Profiles: make(map[string]LockEntry),
+		}
+
+		err := manager.VendorAll(ctx, lockfile, registry, AuthConfig{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no entries")
+	})
+
+	t.Run("returns error for unknown remote", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		registry, _ := NewRegistry("", WithRegistryFS(fs))
+		manager := NewVendorManager("/test", WithVendorFS(fs))
+
+		lockfile := &Lockfile{
+			Version: 1,
+			Bundles: map[string]LockEntry{
+				"unknown/security": {SHA: "abc123"},
+			},
+			Profiles: make(map[string]LockEntry),
+		}
+
+		err := manager.VendorAll(ctx, lockfile, registry, AuthConfig{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "remote not found")
+	})
+}
+
+func TestNewVendorManager_WithFetcherFactory(t *testing.T) {
+	mf := newMockFetcher()
+	ff := mockFetcherFactory(mf)
+
+	manager := NewVendorManager("/test", WithVendorFetcherFactory(ff))
+
+	assert.NotNil(t, manager)
+	assert.NotNil(t, manager.fetcherFactory)
 }

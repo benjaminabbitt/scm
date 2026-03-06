@@ -7,6 +7,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 )
 
@@ -16,11 +17,22 @@ type Registry struct {
 	mu         sync.RWMutex
 	remotes    map[string]*Remote
 	configPath string
+	fs         afero.Fs
+}
+
+// RegistryOption is a functional option for configuring a Registry.
+type RegistryOption func(*Registry)
+
+// WithRegistryFS sets a custom filesystem implementation (for testing).
+func WithRegistryFS(fs afero.Fs) RegistryOption {
+	return func(r *Registry) {
+		r.fs = fs
+	}
 }
 
 // NewRegistry creates a new registry that persists to the given config path.
 // If configPath is empty, defaults to .scm/remotes.yaml in current directory.
-func NewRegistry(configPath string) (*Registry, error) {
+func NewRegistry(configPath string, opts ...RegistryOption) (*Registry, error) {
 	if configPath == "" {
 		configPath = filepath.Join(".scm", "remotes.yaml")
 	}
@@ -28,6 +40,11 @@ func NewRegistry(configPath string) (*Registry, error) {
 	r := &Registry{
 		remotes:    make(map[string]*Remote),
 		configPath: configPath,
+		fs:         afero.NewOsFs(),
+	}
+
+	for _, opt := range opts {
+		opt(r)
 	}
 
 	// Load existing config if it exists
@@ -49,7 +66,7 @@ type configFile struct {
 
 // load reads remotes from the config file.
 func (r *Registry) load() error {
-	data, err := os.ReadFile(r.configPath)
+	data, err := afero.ReadFile(r.fs, r.configPath)
 	if err != nil {
 		return err
 	}
@@ -72,7 +89,7 @@ func (r *Registry) load() error {
 func (r *Registry) save() error {
 	// Read existing config to preserve other fields
 	var existingRaw map[string]interface{}
-	data, err := os.ReadFile(r.configPath)
+	data, err := afero.ReadFile(r.fs, r.configPath)
 	if err == nil {
 		yaml.Unmarshal(data, &existingRaw)
 	}
@@ -95,7 +112,7 @@ func (r *Registry) save() error {
 	}
 
 	// Ensure directory exists
-	if err := os.MkdirAll(filepath.Dir(r.configPath), 0755); err != nil {
+	if err := r.fs.MkdirAll(filepath.Dir(r.configPath), 0755); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
@@ -105,7 +122,7 @@ func (r *Registry) save() error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	if err := os.WriteFile(r.configPath, out, 0644); err != nil {
+	if err := afero.WriteFile(r.fs, r.configPath, out, 0644); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 

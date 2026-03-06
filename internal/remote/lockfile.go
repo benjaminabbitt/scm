@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 )
 
@@ -15,15 +16,33 @@ const lockfileName = "lock.yaml"
 // LockfileManager handles reading and writing lockfiles.
 type LockfileManager struct {
 	baseDir string
+	fs      afero.Fs
+}
+
+// LockfileOption is a functional option for configuring a LockfileManager.
+type LockfileOption func(*LockfileManager)
+
+// WithLockfileFS sets a custom filesystem implementation (for testing).
+func WithLockfileFS(fs afero.Fs) LockfileOption {
+	return func(m *LockfileManager) {
+		m.fs = fs
+	}
 }
 
 // NewLockfileManager creates a new lockfile manager.
 // If baseDir is empty, uses the current directory's .scm folder.
-func NewLockfileManager(baseDir string) *LockfileManager {
+func NewLockfileManager(baseDir string, opts ...LockfileOption) *LockfileManager {
 	if baseDir == "" {
 		baseDir = ".scm"
 	}
-	return &LockfileManager{baseDir: baseDir}
+	m := &LockfileManager{
+		baseDir: baseDir,
+		fs:      afero.NewOsFs(),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
 }
 
 // Path returns the path to the lockfile.
@@ -36,7 +55,7 @@ func (m *LockfileManager) Path() string {
 func (m *LockfileManager) Load() (*Lockfile, error) {
 	path := m.Path()
 
-	data, err := os.ReadFile(path)
+	data, err := afero.ReadFile(m.fs, path)
 	if os.IsNotExist(err) {
 		return &Lockfile{
 			Version:  1,
@@ -74,12 +93,12 @@ func (m *LockfileManager) Save(lockfile *Lockfile) error {
 	}
 
 	// Ensure directory exists
-	if err := os.MkdirAll(m.baseDir, 0755); err != nil {
+	if err := m.fs.MkdirAll(m.baseDir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
 	path := m.Path()
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := afero.WriteFile(m.fs, path, data, 0644); err != nil {
 		return fmt.Errorf("failed to write lockfile: %w", err)
 	}
 

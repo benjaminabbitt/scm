@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/spf13/afero"
 )
 
 // BundleResolver resolves bundle URL references to local paths.
@@ -14,17 +16,33 @@ type BundleResolver struct {
 	scmDir          string
 	lockfileManager *LockfileManager
 	remoteConfig    *RemoteConfig
+	fs              afero.Fs
+}
+
+// ResolverOption is a functional option for configuring a BundleResolver.
+type ResolverOption func(*BundleResolver)
+
+// WithResolverFS sets a custom filesystem implementation (for testing).
+func WithResolverFS(fs afero.Fs) ResolverOption {
+	return func(r *BundleResolver) {
+		r.fs = fs
+	}
 }
 
 // NewBundleResolver creates a new bundle resolver.
-func NewBundleResolver(scmDir string) *BundleResolver {
+func NewBundleResolver(scmDir string, opts ...ResolverOption) *BundleResolver {
 	if scmDir == "" {
 		scmDir = ".scm"
 	}
-	return &BundleResolver{
+	r := &BundleResolver{
 		scmDir:          scmDir,
 		lockfileManager: NewLockfileManager(scmDir),
+		fs:              afero.NewOsFs(),
 	}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
 }
 
 // WithRemoteConfig sets the remote configuration for alias resolution.
@@ -52,7 +70,7 @@ func (r *BundleResolver) ResolveToLocalPath(bundleRef string) (string, error) {
 	localPath := ref.LocalPath(r.scmDir, ItemTypeBundle)
 
 	// Check if the file exists
-	if _, err := os.Stat(localPath); err != nil {
+	if _, err := r.fs.Stat(localPath); err != nil {
 		if os.IsNotExist(err) {
 			return "", fmt.Errorf("bundle not cached locally: %s (expected at %s)", bundleRef, localPath)
 		}
@@ -93,7 +111,7 @@ func (r *BundleResolver) ResolveBundle(bundleRef string) (*ResolvedBundle, error
 	result.LocalPath = ref.LocalPath(r.scmDir, ItemTypeBundle)
 
 	// Check if file exists
-	if _, err := os.Stat(result.LocalPath); err != nil {
+	if _, err := r.fs.Stat(result.LocalPath); err != nil {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("bundle not cached locally: %s (expected at %s)", bundleRef, result.LocalPath)
 		}

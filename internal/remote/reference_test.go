@@ -576,12 +576,572 @@ func TestReference_LocalRemoteName(t *testing.T) {
 			},
 			want: "user/scm-content",
 		},
+		{
+			name: "file URL with single path component",
+			ref: Reference{
+				URL:         "file:///repo",
+				IsCanonical: true,
+			},
+			want: "repo",
+		},
+		{
+			name: "malformed URL falls back to sanitize",
+			ref: Reference{
+				URL:         "unknown://weird:url",
+				IsCanonical: true,
+			},
+			want: "unknown/weird/url",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := tt.ref.LocalRemoteName(); got != tt.want {
 				t.Errorf("LocalRemoteName() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReference_RepoURL(t *testing.T) {
+	tests := []struct {
+		name string
+		ref  Reference
+		want string
+	}{
+		{
+			name: "simple reference has no URL",
+			ref:  Reference{Remote: "alice", Path: "security"},
+			want: "",
+		},
+		{
+			name: "canonical HTTPS reference",
+			ref: Reference{
+				URL:         "https://github.com/owner/repo",
+				IsCanonical: true,
+			},
+			want: "https://github.com/owner/repo",
+		},
+		{
+			name: "canonical SSH reference",
+			ref: Reference{
+				URL:         "git@github.com:owner/repo",
+				IsCanonical: true,
+			},
+			want: "git@github.com:owner/repo",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.ref.RepoURL(); got != tt.want {
+				t.Errorf("RepoURL() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReference_ToLocalName(t *testing.T) {
+	tests := []struct {
+		name string
+		ref  Reference
+		want string
+	}{
+		{
+			name: "simple reference",
+			ref:  Reference{Remote: "alice", Path: "security"},
+			want: "alice/security",
+		},
+		{
+			name: "canonical HTTPS reference",
+			ref: Reference{
+				URL:         "https://github.com/owner/scm-github",
+				Version:     "v1",
+				ItemType:    ItemTypeBundle,
+				Path:        "core-practices",
+				IsCanonical: true,
+			},
+			want: "scm-github/core-practices",
+		},
+		{
+			name: "canonical SSH reference",
+			ref: Reference{
+				URL:         "git@github.com:owner/my-repo",
+				Version:     "v1",
+				ItemType:    ItemTypeProfile,
+				Path:        "dev",
+				IsCanonical: true,
+			},
+			want: "my-repo/dev",
+		},
+		{
+			name: "canonical file reference",
+			ref: Reference{
+				URL:         "file:///home/user/my-scm",
+				Version:     "v1",
+				ItemType:    ItemTypeBundle,
+				Path:        "tools",
+				IsCanonical: true,
+			},
+			want: "my-scm/tools",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.ref.ToLocalName(); got != tt.want {
+				t.Errorf("ToLocalName() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtractRepoName(t *testing.T) {
+	tests := []struct {
+		name    string
+		repoURL string
+		want    string
+	}{
+		{
+			name:    "HTTPS GitHub URL",
+			repoURL: "https://github.com/owner/repo",
+			want:    "repo",
+		},
+		{
+			name:    "HTTPS GitLab URL with subgroups",
+			repoURL: "https://gitlab.com/group/subgroup/repo",
+			want:    "repo",
+		},
+		{
+			name:    "HTTP URL",
+			repoURL: "http://example.com/owner/my-repo",
+			want:    "my-repo",
+		},
+		{
+			name:    "SSH GitHub URL",
+			repoURL: "git@github.com:owner/repo",
+			want:    "repo",
+		},
+		{
+			name:    "SSH GitLab URL with subgroups",
+			repoURL: "git@gitlab.com:group/subgroup/repo",
+			want:    "repo",
+		},
+		{
+			name:    "file URL",
+			repoURL: "file:///path/to/repo",
+			want:    "repo",
+		},
+		{
+			name:    "file URL with single component",
+			repoURL: "file:///repo",
+			want:    "repo",
+		},
+		{
+			name:    "unknown format falls back to sanitize",
+			repoURL: "unknown://weird:format",
+			want:    "unknown/weird/format",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ExtractRepoName(tt.repoURL); got != tt.want {
+				t.Errorf("ExtractRepoName(%q) = %q, want %q", tt.repoURL, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReference_ToCanonicalWithVersion(t *testing.T) {
+	tests := []struct {
+		name string
+		ref  Reference
+		want string
+	}{
+		{
+			name: "simple reference without URL",
+			ref:  Reference{Remote: "alice", Path: "security", GitRef: "v1.0.0"},
+			want: "alice/security@v1.0.0",
+		},
+		{
+			name: "canonical without content version",
+			ref: Reference{
+				URL:         "https://github.com/owner/repo",
+				Version:     "v1",
+				ItemType:    ItemTypeBundle,
+				Path:        "core-practices",
+				IsCanonical: true,
+			},
+			want: "https://github.com/owner/repo@v1/bundles/core-practices",
+		},
+		{
+			name: "canonical with content version",
+			ref: Reference{
+				URL:            "https://github.com/owner/repo",
+				Version:        "v1",
+				ItemType:       ItemTypeBundle,
+				Path:           "core-practices",
+				ContentVersion: "v1.2.3",
+				IsCanonical:    true,
+			},
+			want: "https://github.com/owner/repo@v1/bundles/core-practices@v1.2.3",
+		},
+		{
+			name: "canonical profile with SHA content version",
+			ref: Reference{
+				URL:            "git@github.com:owner/repo",
+				Version:        "v2",
+				ItemType:       ItemTypeProfile,
+				Path:           "security",
+				ContentVersion: "abc1234",
+				IsCanonical:    true,
+			},
+			want: "git@github.com:owner/repo@v2/profiles/security@abc1234",
+		},
+		{
+			name: "canonical with empty item type",
+			ref: Reference{
+				URL:         "https://github.com/owner/repo",
+				Version:     "v1",
+				ItemType:    "",
+				Path:        "core",
+				IsCanonical: true,
+			},
+			want: "https://github.com/owner/repo@v1/s/core",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.ref.ToCanonicalWithVersion(); got != tt.want {
+				t.Errorf("ToCanonicalWithVersion() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReference_EffectiveContentVersion(t *testing.T) {
+	tests := []struct {
+		name string
+		ref  Reference
+		want string
+	}{
+		{
+			name: "prefers ContentVersion",
+			ref: Reference{
+				ContentVersion: "v1.2.3",
+				GitRef:         "main",
+			},
+			want: "v1.2.3",
+		},
+		{
+			name: "falls back to GitRef",
+			ref: Reference{
+				ContentVersion: "",
+				GitRef:         "main",
+			},
+			want: "main",
+		},
+		{
+			name: "both empty",
+			ref: Reference{
+				ContentVersion: "",
+				GitRef:         "",
+			},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.ref.EffectiveContentVersion(); got != tt.want {
+				t.Errorf("EffectiveContentVersion() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReference_CanonicalString(t *testing.T) {
+	tests := []struct {
+		name string
+		ref  Reference
+		want string
+	}{
+		{
+			name: "simple reference returns String format",
+			ref:  Reference{Remote: "alice", Path: "security"},
+			want: "alice/security",
+		},
+		{
+			name: "canonical bundle",
+			ref: Reference{
+				URL:         "https://github.com/owner/repo",
+				Version:     "v1",
+				ItemType:    ItemTypeBundle,
+				Path:        "core-practices",
+				IsCanonical: true,
+			},
+			want: "https://github.com/owner/repo@v1/bundles/core-practices",
+		},
+		{
+			name: "canonical profile",
+			ref: Reference{
+				URL:         "git@github.com:owner/repo",
+				Version:     "v2",
+				ItemType:    ItemTypeProfile,
+				Path:        "security",
+				IsCanonical: true,
+			},
+			want: "git@github.com:owner/repo@v2/profiles/security",
+		},
+		{
+			name: "empty item type",
+			ref: Reference{
+				URL:         "https://github.com/owner/repo",
+				Version:     "v1",
+				ItemType:    "",
+				Path:        "core",
+				IsCanonical: true,
+			},
+			want: "https://github.com/owner/repo@v1/s/core",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.ref.CanonicalString(); got != tt.want {
+				t.Errorf("CanonicalString() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseReference_ContentVersion(t *testing.T) {
+	tests := []struct {
+		name               string
+		input              string
+		wantContentVersion string
+		wantPath           string
+	}{
+		{
+			name:               "HTTPS with content version tag",
+			input:              "https://github.com/owner/repo@v1/bundles/core@v1.2.3",
+			wantContentVersion: "v1.2.3",
+			wantPath:           "core",
+		},
+		{
+			name:               "HTTPS with content version SHA",
+			input:              "https://github.com/owner/repo@v1/bundles/core@abc1234",
+			wantContentVersion: "abc1234",
+			wantPath:           "core",
+		},
+		{
+			name:               "SSH with content version",
+			input:              "git@github.com:owner/repo@v1/profiles/dev@v2.0.0",
+			wantContentVersion: "v2.0.0",
+			wantPath:           "dev",
+		},
+		{
+			name:               "file URL with content version",
+			input:              "file:///path/to/repo@v1/bundles/tools@main",
+			wantContentVersion: "main",
+			wantPath:           "tools",
+		},
+		{
+			name:               "without content version",
+			input:              "https://github.com/owner/repo@v1/bundles/core",
+			wantContentVersion: "",
+			wantPath:           "core",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ref, err := ParseReference(tt.input)
+			if err != nil {
+				t.Fatalf("ParseReference(%q) unexpected error: %v", tt.input, err)
+			}
+			if ref.ContentVersion != tt.wantContentVersion {
+				t.Errorf("ContentVersion = %q, want %q", ref.ContentVersion, tt.wantContentVersion)
+			}
+			if ref.Path != tt.wantPath {
+				t.Errorf("Path = %q, want %q", ref.Path, tt.wantPath)
+			}
+		})
+	}
+}
+
+func TestReference_ToCanonical(t *testing.T) {
+	tests := []struct {
+		name     string
+		ref      *Reference
+		itemType ItemType
+		wantURL  string
+		wantErr  bool
+	}{
+		{
+			name: "converts simple ref to canonical",
+			ref: &Reference{
+				Remote:      "alice",
+				Path:        "security",
+				GitRef:      "v1.0.0",
+				IsCanonical: false,
+			},
+			itemType: ItemTypeBundle,
+			wantURL:  "https://github.com/alice/scm",
+			wantErr:  false,
+		},
+		{
+			name: "already canonical returns same",
+			ref: &Reference{
+				URL:         "https://github.com/owner/repo",
+				Version:     "v1",
+				ItemType:    ItemTypeBundle,
+				Path:        "security",
+				IsCanonical: true,
+			},
+			itemType: ItemTypeBundle,
+			wantURL:  "https://github.com/owner/repo",
+			wantErr:  false,
+		},
+		{
+			name: "unknown remote returns error",
+			ref: &Reference{
+				Remote:      "unknown",
+				Path:        "security",
+				IsCanonical: false,
+			},
+			itemType: ItemTypeBundle,
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create registry with alice remote
+			registry, _ := NewRegistry("")
+			registry.Add("alice", "https://github.com/alice/scm")
+
+			result, err := tt.ref.ToCanonical(registry, tt.itemType)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error but got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result.URL != tt.wantURL {
+				t.Errorf("URL = %q, want %q", result.URL, tt.wantURL)
+			}
+			if !result.IsCanonical {
+				t.Error("expected IsCanonical to be true")
+			}
+		})
+	}
+}
+
+func TestReference_MustCanonical(t *testing.T) {
+	t.Run("succeeds for valid remote", func(t *testing.T) {
+		registry, _ := NewRegistry("")
+		registry.Add("alice", "https://github.com/alice/scm")
+
+		ref := &Reference{
+			Remote:      "alice",
+			Path:        "security",
+			IsCanonical: false,
+		}
+
+		// Should not panic
+		result := ref.MustCanonical(registry, ItemTypeBundle)
+		if !result.IsCanonical {
+			t.Error("expected canonical reference")
+		}
+	})
+
+	t.Run("panics for unknown remote", func(t *testing.T) {
+		registry, _ := NewRegistry("")
+
+		ref := &Reference{
+			Remote:      "unknown",
+			Path:        "security",
+			IsCanonical: false,
+		}
+
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("expected panic but got none")
+			}
+		}()
+
+		ref.MustCanonical(registry, ItemTypeBundle)
+	})
+}
+
+func TestParseVersionTypePath(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		wantVersion string
+		wantType    ItemType
+		wantPath    string
+		wantErr     bool
+	}{
+		{
+			name:        "bundles",
+			input:       "v1/bundles/core-practices",
+			wantVersion: "v1",
+			wantType:    ItemTypeBundle,
+			wantPath:    "core-practices",
+		},
+		{
+			name:        "profiles",
+			input:       "v2/profiles/development",
+			wantVersion: "v2",
+			wantType:    ItemTypeProfile,
+			wantPath:    "development",
+		},
+		{
+			name:        "nested path",
+			input:       "v1/bundles/golang/security",
+			wantVersion: "v1",
+			wantType:    ItemTypeBundle,
+			wantPath:    "golang/security",
+		},
+		{
+			name:    "too few parts",
+			input:   "v1/bundles",
+			wantErr: true,
+		},
+		{
+			name:    "unknown type",
+			input:   "v1/fragments/name",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			version, itemType, path, err := parseVersionTypePath(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error but got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if version != tt.wantVersion {
+				t.Errorf("version = %q, want %q", version, tt.wantVersion)
+			}
+			if itemType != tt.wantType {
+				t.Errorf("itemType = %q, want %q", itemType, tt.wantType)
+			}
+			if path != tt.wantPath {
+				t.Errorf("path = %q, want %q", path, tt.wantPath)
 			}
 		})
 	}

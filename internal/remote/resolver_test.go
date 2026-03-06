@@ -4,6 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/spf13/afero"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIsURLReference(t *testing.T) {
@@ -65,10 +69,10 @@ func TestBundleResolver_ResolveToLocalPath(t *testing.T) {
 	resolver := NewBundleResolver(scmDir)
 
 	tests := []struct {
-		name       string
-		bundleRef  string
-		wantPath   string
-		wantErr    bool
+		name      string
+		bundleRef string
+		wantPath  string
+		wantErr   bool
 	}{
 		{
 			name:      "valid https reference",
@@ -95,4 +99,168 @@ func TestBundleResolver_ResolveToLocalPath(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNewBundleResolver_DefaultDir(t *testing.T) {
+	resolver := NewBundleResolver("")
+	assert.Equal(t, ".scm", resolver.scmDir)
+}
+
+func TestNewBundleResolver_WithResolverFS(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	resolver := NewBundleResolver("/test", WithResolverFS(fs))
+	assert.Equal(t, "/test", resolver.scmDir)
+	assert.NotNil(t, resolver.fs)
+}
+
+func TestBundleResolver_WithRemoteConfig(t *testing.T) {
+	resolver := NewBundleResolver("/test")
+	cfg := &RemoteConfig{}
+
+	result := resolver.WithRemoteConfig(cfg)
+
+	assert.Same(t, resolver, result)
+	assert.Same(t, cfg, resolver.remoteConfig)
+}
+
+func TestBundleResolver_ResolveToLocalPath_InvalidReference(t *testing.T) {
+	resolver := NewBundleResolver("/test")
+
+	_, err := resolver.ResolveToLocalPath("invalid")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid bundle reference")
+}
+
+func TestBundleResolver_ResolveToLocalPath_WithMemFS(t *testing.T) {
+	fs := afero.NewMemMapFs()
+
+	// Create bundle file in memory filesystem
+	bundlePath := "/test/bundles/github.com/owner/repo/core-practices.yaml"
+	require.NoError(t, fs.MkdirAll(filepath.Dir(bundlePath), 0755))
+	require.NoError(t, afero.WriteFile(fs, bundlePath, []byte("version: '1.0.0'\n"), 0644))
+
+	resolver := NewBundleResolver("/test", WithResolverFS(fs))
+
+	path, err := resolver.ResolveToLocalPath("https://github.com/owner/repo@v1/bundles/core-practices")
+	require.NoError(t, err)
+	assert.Equal(t, bundlePath, path)
+}
+
+func TestBundleResolver_ResolveBundle(t *testing.T) {
+	fs := afero.NewMemMapFs()
+
+	// Create bundle file
+	bundlePath := "/test/bundles/github.com/owner/repo/core-practices.yaml"
+	require.NoError(t, fs.MkdirAll(filepath.Dir(bundlePath), 0755))
+	require.NoError(t, afero.WriteFile(fs, bundlePath, []byte("version: '1.0.0'\n"), 0644))
+
+	resolver := NewBundleResolver("/test", WithResolverFS(fs))
+
+	t.Run("resolves canonical reference", func(t *testing.T) {
+		result, err := resolver.ResolveBundle("https://github.com/owner/repo@v1/bundles/core-practices")
+		require.NoError(t, err)
+
+		assert.Equal(t, "https://github.com/owner/repo@v1/bundles/core-practices", result.OriginalRef)
+		assert.Equal(t, bundlePath, result.LocalPath)
+		assert.Equal(t, "https://github.com/owner/repo@v1/bundles/core-practices", result.CanonicalURL)
+		// LockEntry may be nil if no lockfile exists
+	})
+
+	t.Run("returns error for missing bundle", func(t *testing.T) {
+		_, err := resolver.ResolveBundle("https://github.com/owner/repo@v1/bundles/nonexistent")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not cached locally")
+	})
+
+	t.Run("returns error for invalid reference", func(t *testing.T) {
+		_, err := resolver.ResolveBundle("invalid")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid bundle reference")
+	})
+}
+
+func TestBundleResolver_ResolveBundle_AliasRef(t *testing.T) {
+	fs := afero.NewMemMapFs()
+
+	// Create bundle file for alias reference
+	bundlePath := "/test/bundles/alice/core-practices.yaml"
+	require.NoError(t, fs.MkdirAll(filepath.Dir(bundlePath), 0755))
+	require.NoError(t, afero.WriteFile(fs, bundlePath, []byte("version: '1.0.0'\n"), 0644))
+
+	resolver := NewBundleResolver("/test", WithResolverFS(fs))
+
+	result, err := resolver.ResolveBundle("alice/core-practices")
+	require.NoError(t, err)
+
+	assert.Equal(t, "alice/core-practices", result.OriginalRef)
+	assert.Equal(t, bundlePath, result.LocalPath)
+	// For alias refs, canonical string format
+	assert.Equal(t, "alice/core-practices", result.CanonicalURL)
+}
+
+func TestBundleResolver_LocalPathToCanonicalURL(t *testing.T) {
+	// Use real temp directory for integration with lockfile manager
+	tmpDir := t.TempDir()
+	scmDir := filepath.Join(tmpDir, ".scm")
+	require.NoError(t, os.MkdirAll(scmDir, 0755))
+
+	// Create lockfile with entry
+	lockMgr := NewLockfileManager(scmDir)
+	lockfile := &Lockfile{
+		Version: 1,
+		Bundles: map[string]LockEntry{
+			"https://github.com/owner/repo@v1/bundles/core-practices": {
+				SHA:        "abc123",
+				URL:        "https://github.com/owner/repo",
+				SCMVersion: "v1",
+			},
+		},
+		Profiles: make(map[string]LockEntry),
+	}
+	require.NoError(t, lockMgr.Save(lockfile))
+
+	resolver := NewBundleResolver(scmDir)
+
+	t.Run("finds canonical URL for local path", func(t *testing.T) {
+		localPath := filepath.Join(scmDir, "bundles/github.com/owner/repo/core-practices.yaml")
+		url, err := resolver.LocalPathToCanonicalURL(localPath)
+		require.NoError(t, err)
+		assert.Equal(t, "https://github.com/owner/repo@v1/bundles/core-practices", url)
+	})
+
+	t.Run("returns error for unknown path", func(t *testing.T) {
+		localPath := filepath.Join(scmDir, "bundles/unknown/bundle.yaml")
+		_, err := resolver.LocalPathToCanonicalURL(localPath)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no lockfile entry found")
+	})
+}
+
+func TestBundleResolver_LocalPathToCanonicalURL_AliasEntry(t *testing.T) {
+	tmpDir := t.TempDir()
+	scmDir := filepath.Join(tmpDir, ".scm")
+	require.NoError(t, os.MkdirAll(scmDir, 0755))
+
+	// Create lockfile with alias entry
+	lockMgr := NewLockfileManager(scmDir)
+	lockfile := &Lockfile{
+		Version: 1,
+		Bundles: map[string]LockEntry{
+			"alice/core-practices": {
+				SHA:        "abc123",
+				URL:        "https://github.com/alice/scm",
+				SCMVersion: "v1",
+			},
+		},
+		Profiles: make(map[string]LockEntry),
+	}
+	require.NoError(t, lockMgr.Save(lockfile))
+
+	resolver := NewBundleResolver(scmDir)
+
+	localPath := filepath.Join(scmDir, "bundles/alice/core-practices.yaml")
+	url, err := resolver.LocalPathToCanonicalURL(localPath)
+	require.NoError(t, err)
+	// For alias refs, builds canonical URL from entry metadata
+	assert.Equal(t, "https://github.com/alice/scm@v1/bundles/core-practices", url)
 }
