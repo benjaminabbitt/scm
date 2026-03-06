@@ -29,10 +29,6 @@
           "additionalProperties": {
             "type": "object",
             "properties": {
-              "default": {
-                "type": "boolean",
-                "description": "If true, this is the default plugin"
-              },
               "model": {
                 "type": "string",
                 "description": "Default model to use with this plugin",
@@ -94,6 +90,10 @@
             "minLength": 1
           },
           "uniqueItems": true
+        },
+        "llm_plugin": {
+          "type": "string",
+          "description": "Default LLM plugin to use (e.g., 'claude-code', 'gemini')"
         },
         "use_distilled": {
           "type": "boolean",
@@ -214,6 +214,14 @@
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "notes": {
+          "type": "string",
+          "description": "Human-readable notes about the server (not sent to AI)"
+        },
+        "installation": {
+          "type": "string",
+          "description": "Setup/installation instructions (not sent to AI)"
         }
       },
       "additionalProperties": false

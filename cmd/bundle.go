@@ -170,8 +170,11 @@ func runBundleShow(cmd *cobra.Command, args []string) error {
 					fmt.Printf("        %s=%s\n", k, v)
 				}
 			}
-			if mcp.Note != "" {
-				fmt.Printf("      Note: %s\n", mcp.Note)
+			if mcp.Notes != "" {
+				fmt.Printf("      Notes: %s\n", mcp.Notes)
+			}
+			if mcp.Installation != "" {
+				fmt.Printf("      Installation: %s\n", mcp.Installation)
 			}
 		}
 		fmt.Println()
@@ -812,7 +815,7 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 	// Determine plugin to use
 	pluginName := bundleDistillPlugin
 	if pluginName == "" {
-		pluginName = cfg.LM.GetDefaultPlugin()
+		pluginName = cfg.GetDefaultLLMPlugin()
 	}
 
 	// Get plugin env config
@@ -1228,7 +1231,7 @@ func runBundleFragmentEdit(cmd *cobra.Command, args []string) error {
 			fmt.Printf(" skipped (no distill prompt)\n")
 		} else {
 			// Get plugin config
-			pluginName := cfg.LM.GetDefaultPlugin()
+			pluginName := cfg.GetDefaultLLMPlugin()
 			pluginCfg := cfg.LM.Plugins[pluginName]
 
 			// Build sibling context
@@ -1322,7 +1325,7 @@ func runBundlePromptEdit(cmd *cobra.Command, args []string) error {
 			fmt.Printf(" skipped (no distill prompt)\n")
 		} else {
 			// Get plugin config
-			pluginName := cfg.LM.GetDefaultPlugin()
+			pluginName := cfg.GetDefaultLLMPlugin()
 			pluginCfg := cfg.LM.Plugins[pluginName]
 
 			// Build sibling context

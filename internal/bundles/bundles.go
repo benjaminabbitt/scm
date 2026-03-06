@@ -39,33 +39,38 @@ type Bundle struct {
 
 // BundleMCP defines an MCP server within a bundle.
 type BundleMCP struct {
-	Command string            `yaml:"command"`
-	Args    []string          `yaml:"args,omitempty"`
-	Env     map[string]string `yaml:"env,omitempty"`
-	Note    string            `yaml:"note,omitempty"` // Security/usage note
+	Command      string            `yaml:"command"`
+	Args         []string          `yaml:"args,omitempty"`
+	Env          map[string]string `yaml:"env,omitempty"`
+	Notes        string            `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
+	Installation string            `yaml:"installation,omitempty"` // Setup/installation instructions, not sent to AI
 }
 
 // BundleFragment defines a fragment within a bundle.
 type BundleFragment struct {
-	Tags        []string `yaml:"tags,omitempty"`       // Additional tags (merged with bundle tags)
-	Variables   []string `yaml:"variables,omitempty"`  // Template variables
-	Content     string   `yaml:"content"`
-	ContentHash string   `yaml:"content_hash,omitempty"`
-	Distilled   string   `yaml:"distilled,omitempty"`
-	DistilledBy string   `yaml:"distilled_by,omitempty"`
-	NoDistill   bool     `yaml:"no_distill,omitempty"`
+	Tags         []string `yaml:"tags,omitempty"`         // Additional tags (merged with bundle tags)
+	Variables    []string `yaml:"variables,omitempty"`    // Template variables
+	Notes        string   `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
+	Installation string   `yaml:"installation,omitempty"` // Setup/installation instructions, not sent to AI
+	Content      string   `yaml:"content"`
+	ContentHash  string   `yaml:"content_hash,omitempty"`
+	Distilled    string   `yaml:"distilled,omitempty"`
+	DistilledBy  string   `yaml:"distilled_by,omitempty"`
+	NoDistill    bool     `yaml:"no_distill,omitempty"`
 }
 
 // BundlePrompt defines a prompt within a bundle.
 type BundlePrompt struct {
-	Description string   `yaml:"description,omitempty"`
-	Tags        []string `yaml:"tags,omitempty"`
-	Variables   []string `yaml:"variables,omitempty"`
-	Content     string   `yaml:"content"`
-	ContentHash string   `yaml:"content_hash,omitempty"`
-	Distilled   string   `yaml:"distilled,omitempty"`
-	DistilledBy string   `yaml:"distilled_by,omitempty"`
-	NoDistill   bool     `yaml:"no_distill,omitempty"`
+	Description  string   `yaml:"description,omitempty"`
+	Tags         []string `yaml:"tags,omitempty"`
+	Variables    []string `yaml:"variables,omitempty"`
+	Notes        string   `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
+	Installation string   `yaml:"installation,omitempty"` // Setup/installation instructions, not sent to AI
+	Content      string   `yaml:"content"`
+	ContentHash  string   `yaml:"content_hash,omitempty"`
+	Distilled    string   `yaml:"distilled,omitempty"`
+	DistilledBy  string   `yaml:"distilled_by,omitempty"`
+	NoDistill    bool     `yaml:"no_distill,omitempty"`
 }
 
 // ComputeContentHash computes SHA256 hash of the content.

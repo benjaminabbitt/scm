@@ -110,7 +110,7 @@ func TestAddMCPServerResult_Fields(t *testing.T) {
 		Name:    "my-server",
 		Command: "npx",
 		Backend: "unified",
-		Note:    "Server added successfully",
+		Message: "Server added successfully",
 	}
 
 	assert.Equal(t, "added", result.Status)
@@ -163,7 +163,7 @@ func TestRemoveMCPServerResult_Fields(t *testing.T) {
 		Status:      "removed",
 		Name:        "removed-server",
 		RemovedFrom: []string{"unified"},
-		Note:        "Server removed",
+		Message:     "Server removed",
 	}
 
 	assert.Equal(t, "removed", result.Status)
@@ -183,7 +183,7 @@ func TestSetMCPAutoRegisterResult_Fields(t *testing.T) {
 	result := SetMCPAutoRegisterResult{
 		Status:       "enabled",
 		AutoRegister: true,
-		Note:         "Auto-register enabled",
+		Message:      "Auto-register enabled",
 	}
 
 	assert.Equal(t, "enabled", result.Status)
