@@ -1,9 +1,18 @@
+// Package collections tests verify the generic Set type provides correct
+// uniqueness guarantees and collection operations. Sets are used throughout
+// SCM to deduplicate tags, fragment names, and other collections where
+// uniqueness matters.
 package collections
 
 import (
 	"slices"
 	"testing"
 )
+
+// =============================================================================
+// Set Construction Tests
+// =============================================================================
+// Sets must initialize correctly and deduplicate elements on creation.
 
 func TestNewSet(t *testing.T) {
 	s := NewSet[string]()
@@ -13,6 +22,7 @@ func TestNewSet(t *testing.T) {
 }
 
 func TestNewSetFrom(t *testing.T) {
+	// Duplicates in input should be collapsed - essential for tag deduplication
 	s := NewSetFrom("a", "b", "c", "a") // duplicate "a"
 	if s.Len() != 3 {
 		t.Errorf("expected 3 elements, got %d", s.Len())
@@ -22,7 +32,13 @@ func TestNewSetFrom(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// Set Mutation Tests
+// =============================================================================
+// Sets must maintain uniqueness invariant across all mutation operations.
+
 func TestSet_Add(t *testing.T) {
+	// Adding duplicates must not increase size - this is the core set property
 	s := NewSet[int]()
 	s.Add(1)
 	s.Add(2)
@@ -34,6 +50,7 @@ func TestSet_Add(t *testing.T) {
 }
 
 func TestSet_AddAll(t *testing.T) {
+	// Batch adds must also deduplicate - used when merging tag lists
 	s := NewSet[string]()
 	s.AddAll("x", "y", "z", "x")
 
@@ -43,6 +60,7 @@ func TestSet_AddAll(t *testing.T) {
 }
 
 func TestSet_Has(t *testing.T) {
+	// Membership checks must be accurate - used for filtering duplicates
 	s := NewSetFrom("exists")
 
 	if !s.Has("exists") {
@@ -54,6 +72,7 @@ func TestSet_Has(t *testing.T) {
 }
 
 func TestSet_Remove(t *testing.T) {
+	// Remove must be idempotent - safe to call on missing elements
 	s := NewSetFrom("a", "b")
 	s.Remove("a")
 
@@ -69,6 +88,7 @@ func TestSet_Remove(t *testing.T) {
 }
 
 func TestSet_Clear(t *testing.T) {
+	// Clear enables reuse without allocation
 	s := NewSetFrom(1, 2, 3, 4, 5)
 	s.Clear()
 
@@ -77,7 +97,13 @@ func TestSet_Clear(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// Set Export Tests
+// =============================================================================
+// Sets must provide reliable conversion to slices for iteration and output.
+
 func TestSet_Items(t *testing.T) {
+	// Items provides deterministic iteration when sorted
 	s := NewSetFrom("a", "b", "c")
 	items := s.Items()
 
@@ -93,10 +119,10 @@ func TestSet_Items(t *testing.T) {
 }
 
 func TestSet_Clone(t *testing.T) {
+	// Clone must create independent copy - mutations to clone must not affect original
 	original := NewSetFrom("a", "b")
 	clone := original.Clone()
 
-	// Verify clone has same elements
 	if clone.Len() != original.Len() {
 		t.Error("clone should have same length")
 	}
@@ -104,14 +130,20 @@ func TestSet_Clone(t *testing.T) {
 		t.Error("clone missing elements")
 	}
 
-	// Verify independence
+	// Verify independence - this is critical for safe concurrent operations
 	clone.Add("c")
 	if original.Has("c") {
 		t.Error("modifying clone should not affect original")
 	}
 }
 
+// =============================================================================
+// Generic Type Support Tests
+// =============================================================================
+// Sets must work with any comparable type, not just strings.
+
 func TestSet_IntType(t *testing.T) {
+	// Integer sets used for numeric ID deduplication
 	s := NewSetFrom(1, 2, 3)
 	if s.Len() != 3 {
 		t.Errorf("expected 3 elements, got %d", s.Len())
@@ -127,10 +159,11 @@ type customStruct struct {
 }
 
 func TestSet_StructType(t *testing.T) {
+	// Struct sets work via value equality - useful for complex deduplication
 	s := NewSet[customStruct]()
 	s.Add(customStruct{1, "one"})
 	s.Add(customStruct{2, "two"})
-	s.Add(customStruct{1, "one"}) // duplicate
+	s.Add(customStruct{1, "one"}) // duplicate by value
 
 	if s.Len() != 2 {
 		t.Errorf("expected 2 elements, got %d", s.Len())

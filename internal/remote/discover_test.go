@@ -1,3 +1,6 @@
+// Remote discovery tests verify that SCM can search for and identify remote
+// repositories containing SCM content (fragments, prompts, bundles). This enables
+// users to discover and install community-maintained AI context.
 package remote
 
 import (
@@ -5,10 +8,15 @@ import (
 	"testing"
 )
 
+// =============================================================================
+// Mock Fetcher Tests
+// =============================================================================
+// Mock fetcher enables testing discovery logic without network calls.
+
 func TestMockFetcher_SearchRepos(t *testing.T) {
+	// Mock fetcher returns nil for search - used to isolate tests from network
 	fetcher := newMockFetcher()
 
-	// Test search returns nil for mock
 	repos, err := fetcher.SearchRepos(context.Background(), "test", 10)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -18,7 +26,13 @@ func TestMockFetcher_SearchRepos(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// Repository Info Tests
+// =============================================================================
+// RepoInfo captures metadata for display and filtering of discovered repositories.
+
 func TestRepoInfo_Fields(t *testing.T) {
+	// All repository metadata must be accessible for filtering and display
 	repo := RepoInfo{
 		Owner:       "alice",
 		Name:        "scm",
@@ -48,6 +62,7 @@ func TestRepoInfo_Fields(t *testing.T) {
 }
 
 func TestForgeType_Values(t *testing.T) {
+	// Forge types must have stable string values for config and URL construction
 	tests := []struct {
 		name  string
 		forge ForgeType
