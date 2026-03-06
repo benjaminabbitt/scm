@@ -13,10 +13,12 @@ import (
 
 // MCPServerEntry represents an MCP server in operation results.
 type MCPServerEntry struct {
-	Name    string   `json:"name"`
-	Command string   `json:"command"`
-	Args    []string `json:"args,omitempty"`
-	Backend string   `json:"backend"`
+	Name         string   `json:"name"`
+	Command      string   `json:"command"`
+	Args         []string `json:"args,omitempty"`
+	Backend      string   `json:"backend"`
+	Notes        string   `json:"notes,omitempty"`        // Human-readable notes, not sent to AI
+	Installation string   `json:"installation,omitempty"` // Setup/installation instructions, not sent to AI
 }
 
 // ListMCPServersRequest contains parameters for listing MCP servers.
@@ -59,10 +61,12 @@ func ListMCPServers(ctx context.Context, cfg *config.Config, req ListMCPServersR
 			continue
 		}
 		servers = append(servers, MCPServerEntry{
-			Name:    name,
-			Command: srv.Command,
-			Args:    srv.Args,
-			Backend: "unified",
+			Name:         name,
+			Command:      srv.Command,
+			Args:         srv.Args,
+			Backend:      "unified",
+			Notes:        srv.Notes,
+			Installation: srv.Installation,
 		})
 	}
 
@@ -74,10 +78,12 @@ func ListMCPServers(ctx context.Context, cfg *config.Config, req ListMCPServersR
 				continue
 			}
 			servers = append(servers, MCPServerEntry{
-				Name:    name,
-				Command: srv.Command,
-				Args:    srv.Args,
-				Backend: backend,
+				Name:         name,
+				Command:      srv.Command,
+				Args:         srv.Args,
+				Backend:      backend,
+				Notes:        srv.Notes,
+				Installation: srv.Installation,
 			})
 		}
 	}
@@ -117,10 +123,12 @@ func ListMCPServers(ctx context.Context, cfg *config.Config, req ListMCPServersR
 
 // AddMCPServerRequest contains parameters for adding an MCP server.
 type AddMCPServerRequest struct {
-	Name    string   `json:"name"`
-	Command string   `json:"command"`
-	Args    []string `json:"args"`
-	Backend string   `json:"backend"` // unified, claude-code, gemini
+	Name         string   `json:"name"`
+	Command      string   `json:"command"`
+	Args         []string `json:"args"`
+	Backend      string   `json:"backend"` // unified, claude-code, gemini
+	Notes        string   `json:"notes"`        // Human-readable notes, not sent to AI
+	Installation string   `json:"installation"` // Setup/installation instructions, not sent to AI
 
 	// TestConfig is an optional pre-loaded config (for testing).
 	// When set, skips config.Load() and Save(), returning modified config in result.
@@ -138,8 +146,8 @@ type AddMCPServerResult struct {
 	Name    string         `json:"name"`
 	Command string         `json:"command"`
 	Backend string         `json:"backend"`
-	Note    string         `json:"note"`
-	Config  *config.Config `json:"-"` // Updated config for caller to store
+	Message string         `json:"message"` // Operational status message
+	Config  *config.Config `json:"-"`       // Updated config for caller to store
 }
 
 // AddMCPServer adds a new MCP server configuration.
@@ -172,8 +180,10 @@ func AddMCPServer(ctx context.Context, cfg *config.Config, req AddMCPServerReque
 	}
 
 	server := config.MCPServer{
-		Command: req.Command,
-		Args:    req.Args,
+		Command:      req.Command,
+		Args:         req.Args,
+		Notes:        req.Notes,
+		Installation: req.Installation,
 	}
 
 	if req.Backend == "" || req.Backend == "unified" {
@@ -214,7 +224,7 @@ func AddMCPServer(ctx context.Context, cfg *config.Config, req AddMCPServerReque
 		Name:    req.Name,
 		Command: req.Command,
 		Backend: scope,
-		Note:    "Run apply_hooks to inject into backend settings",
+		Message: "Run apply_hooks to inject into backend settings",
 		Config:  freshCfg,
 	}, nil
 }
@@ -239,8 +249,8 @@ type RemoveMCPServerResult struct {
 	Status      string         `json:"status"`
 	Name        string         `json:"name"`
 	RemovedFrom []string       `json:"removed_from"`
-	Note        string         `json:"note"`
-	Config      *config.Config `json:"-"` // Updated config for caller to store
+	Message     string         `json:"message"` // Operational status message
+	Config      *config.Config `json:"-"`       // Updated config for caller to store
 }
 
 // RemoveMCPServer removes an MCP server configuration.
@@ -316,7 +326,7 @@ func RemoveMCPServer(ctx context.Context, cfg *config.Config, req RemoveMCPServe
 		Status:      "removed",
 		Name:        req.Name,
 		RemovedFrom: removedFrom,
-		Note:        "Run apply_hooks to update backend settings",
+		Message:     "Run apply_hooks to update backend settings",
 		Config:      freshCfg,
 	}, nil
 }
@@ -339,8 +349,8 @@ type SetMCPAutoRegisterRequest struct {
 type SetMCPAutoRegisterResult struct {
 	Status       string         `json:"status"`
 	AutoRegister bool           `json:"auto_register"`
-	Note         string         `json:"note"`
-	Config       *config.Config `json:"-"` // Updated config for caller to store
+	Message      string         `json:"message"` // Operational status message
+	Config       *config.Config `json:"-"`       // Updated config for caller to store
 }
 
 // SetMCPAutoRegister enables or disables auto-registration of SCM's MCP server.
@@ -377,7 +387,7 @@ func SetMCPAutoRegister(ctx context.Context, cfg *config.Config, req SetMCPAutoR
 	return &SetMCPAutoRegisterResult{
 		Status:       "updated",
 		AutoRegister: req.Enabled,
-		Note:         "Run apply_hooks to update backend settings",
+		Message:      "Run apply_hooks to update backend settings",
 		Config:       freshCfg,
 	}, nil
 }

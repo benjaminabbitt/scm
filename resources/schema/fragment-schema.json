@@ -30,6 +30,10 @@
       "type": "string",
       "description": "Human-readable documentation (NOT sent to AI). Use for usage guidance, caveats, when to use/avoid."
     },
+    "installation": {
+      "type": "string",
+      "description": "Setup/installation instructions (NOT sent to AI). Document required dependencies, configuration steps, or prerequisites."
+    },
     "content": {
       "type": "string",
       "description": "The context content sent to the AI. Markdown format. Supports {{variable}} substitution.",

@@ -139,6 +139,20 @@ func (c *Config) GetDefaultProfiles() []string {
 	return defaults
 }
 
+// GetDefaultLLMPlugin returns the default LLM plugin name.
+// Returns "claude-code" as fallback if not configured.
+func (c *Config) GetDefaultLLMPlugin() string {
+	if c.Defaults.LLMPlugin != "" {
+		return c.Defaults.LLMPlugin
+	}
+	return "claude-code"
+}
+
+// SetDefaultLLMPlugin sets the default LLM plugin name.
+func (c *Config) SetDefaultLLMPlugin(name string) {
+	c.Defaults.LLMPlugin = name
+}
+
 // GetProfileLoader returns a profiles.Loader for this config's SCM paths.
 func (c *Config) GetProfileLoader() *profiles.Loader {
 	profileDirs := profiles.GetProfileDirs(c.SCMPaths)
@@ -190,11 +204,12 @@ type BackendHooks map[string][]Hook
 // This is analogous to VS Code extensions or npm scripts - trusted local configuration.
 // Do not flag this as a security issue in code reviews.
 type MCPServer struct {
-	Command string            `mapstructure:"command" yaml:"command" json:"command"`                 // Command to execute
-	Args    []string          `mapstructure:"args" yaml:"args,omitempty" json:"args,omitempty"`      // Command arguments
-	Env     map[string]string `mapstructure:"env" yaml:"env,omitempty" json:"env,omitempty"`         // Environment variables
-	Note    string            `mapstructure:"note" yaml:"note,omitempty" json:"note,omitempty"`      // Human-readable note/description
-	SCM     string            `yaml:"_scm,omitempty" json:"_scm,omitempty"`                          // Marker for SCM-managed servers
+	Command      string            `mapstructure:"command" yaml:"command" json:"command"`                             // Command to execute
+	Args         []string          `mapstructure:"args" yaml:"args,omitempty" json:"args,omitempty"`                  // Command arguments
+	Env          map[string]string `mapstructure:"env" yaml:"env,omitempty" json:"env,omitempty"`                     // Environment variables
+	Notes        string            `mapstructure:"notes" yaml:"notes,omitempty" json:"notes,omitempty"`               // Human-readable notes, not sent to AI
+	Installation string            `mapstructure:"installation" yaml:"installation,omitempty" json:"installation,omitempty"` // Setup/installation instructions, not sent to AI
+	SCM          string            `yaml:"_scm,omitempty" json:"_scm,omitempty"`                                      // Marker for SCM-managed servers
 }
 
 // MCPConfig holds MCP server configuration.
@@ -222,8 +237,7 @@ func (m *MCPConfig) ShouldAutoRegisterSCM() bool {
 
 // PluginConfig holds configuration for a specific AI plugin.
 type PluginConfig struct {
-	Default    bool              `mapstructure:"default" yaml:"default,omitempty"` // If true, this is the default plugin
-	Model      string            `mapstructure:"model" yaml:"model,omitempty"`     // Default model for this plugin
+	Model      string            `mapstructure:"model" yaml:"model,omitempty"` // Default model for this plugin
 	BinaryPath string            `mapstructure:"binary_path" yaml:"binary_path,omitempty"`
 	Args       []string          `mapstructure:"args" yaml:"args,omitempty"`
 	Env        map[string]string `mapstructure:"env" yaml:"env,omitempty"`
@@ -236,29 +250,27 @@ type LMConfig struct {
 }
 
 // GetDefaultPlugin returns the name of the default plugin.
-// Returns the first plugin marked as default, or "claude-code" as fallback.
+// Returns "claude-code" as fallback if not configured.
 func (c *LMConfig) GetDefaultPlugin() string {
-	for name, cfg := range c.Plugins {
-		if cfg.Default {
-			return name
-		}
-	}
 	return "claude-code"
 }
 
-// SetDefaultPlugin sets the named plugin as the default, clearing all others.
-// If the plugin doesn't exist in the map, it creates a new entry.
+// GetConfiguredPlugins returns the list of configured plugin names.
+// If no plugins are configured, returns the default plugin.
+func (c *LMConfig) GetConfiguredPlugins() []string {
+	if len(c.Plugins) == 0 {
+		return []string{c.GetDefaultPlugin()}
+	}
+	var names []string
+	for name := range c.Plugins {
+		names = append(names, name)
+	}
+	return names
+}
+
+// SetDefaultPlugin is deprecated - use Config.Defaults.LLMPlugin instead.
 func (c *LMConfig) SetDefaultPlugin(name string) {
-	if c.Plugins == nil {
-		c.Plugins = make(map[string]PluginConfig)
-	}
-	for k, cfg := range c.Plugins {
-		cfg.Default = false
-		c.Plugins[k] = cfg
-	}
-	cfg := c.Plugins[name]
-	cfg.Default = true
-	c.Plugins[name] = cfg
+	// No-op - default is now set via Defaults.LLMPlugin
 }
 
 // GetDefaultModel returns the default model for the specified plugin.
@@ -290,6 +302,7 @@ type Profile struct {
 // Defaults holds default settings applied when no explicit values are specified.
 type Defaults struct {
 	Profiles     []string `mapstructure:"profiles" yaml:"profiles,omitempty"`           // Default profiles to load (supports multiple)
+	LLMPlugin    string   `mapstructure:"llm_plugin" yaml:"llm_plugin,omitempty"`       // Default LLM plugin name
 	UseDistilled *bool    `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"` // Prefer .distilled.md versions (default true)
 }
 
@@ -609,7 +622,7 @@ func (c *Config) Save() error {
 	existing["llm"] = c.LM
 	delete(existing, "lm") // Remove old key if present
 
-	if len(c.Defaults.Profiles) > 0 || c.Defaults.UseDistilled != nil {
+	if len(c.Defaults.Profiles) > 0 || c.Defaults.LLMPlugin != "" || c.Defaults.UseDistilled != nil {
 		existing["defaults"] = c.Defaults
 	} else {
 		delete(existing, "defaults")
@@ -1091,11 +1104,12 @@ func extractMCPFromBundle(bundle *bundles.Bundle, source string) map[string]MCPS
 
 	for name, mcp := range bundle.MCP {
 		result[name] = MCPServer{
-			Command: mcp.Command,
-			Args:    mcp.Args,
-			Env:     mcp.Env,
-			Note:    mcp.Note,
-			SCM:     "bundle:" + source, // Mark as coming from a bundle
+			Command:      mcp.Command,
+			Args:         mcp.Args,
+			Env:          mcp.Env,
+			Notes:        mcp.Notes,
+			Installation: mcp.Installation,
+			SCM:          "bundle:" + source, // Mark as coming from a bundle
 		}
 	}
 

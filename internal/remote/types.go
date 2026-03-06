@@ -67,10 +67,11 @@ type SecureContent interface {
 
 // RemoteMCPServer represents an MCP server configuration from a remote source.
 type RemoteMCPServer struct {
-	Command   string            `yaml:"command"`
-	Args      []string          `yaml:"args,omitempty"`
-	Env       map[string]string `yaml:"env,omitempty"`
-	NoteField string            `yaml:"note,omitempty"`
+	Command           string            `yaml:"command"`
+	Args              []string          `yaml:"args,omitempty"`
+	Env               map[string]string `yaml:"env,omitempty"`
+	NotesField        string            `yaml:"notes,omitempty"`        // Human-readable notes
+	InstallationField string            `yaml:"installation,omitempty"` // Setup/installation instructions
 }
 
 func (m RemoteMCPServer) SecurityWarning() SecurityWarning {
@@ -85,12 +86,19 @@ func (m RemoteMCPServer) SecurityWarning() SecurityWarning {
 	}
 }
 
-func (m RemoteMCPServer) Note() string { return m.NoteField }
+func (m RemoteMCPServer) Note() string { return m.NotesField }
+
+// Notes returns the human-readable notes for this MCP server.
+func (m RemoteMCPServer) Notes() string { return m.NotesField }
+
+// Installation returns setup/installation instructions for this MCP server.
+func (m RemoteMCPServer) Installation() string { return m.InstallationField }
 
 // RemoteContext represents a fragment, prompt, or profile from a remote source.
 // These all share the same security risk (prompt injection).
 type RemoteContext struct {
-	NoteField string `yaml:"note,omitempty"`
+	NotesField        string `yaml:"notes,omitempty"`        // Human-readable notes
+	InstallationField string `yaml:"installation,omitempty"` // Setup/installation instructions
 }
 
 func (c RemoteContext) SecurityWarning() SecurityWarning {
@@ -105,23 +113,32 @@ func (c RemoteContext) SecurityWarning() SecurityWarning {
 	}
 }
 
-func (c RemoteContext) Note() string { return c.NoteField }
+func (c RemoteContext) Note() string { return c.NotesField }
+
+// Notes returns the human-readable notes for this context.
+func (c RemoteContext) Notes() string { return c.NotesField }
+
+// Installation returns setup/installation instructions for this context.
+func (c RemoteContext) Installation() string { return c.InstallationField }
 
 // RemoteBundle represents a bundle from a remote source.
 // Bundles combine MCP servers with fragments and prompts.
 type RemoteBundle struct {
-	Version     string                       `yaml:"version"`
-	Description string                       `yaml:"description,omitempty"`
-	NoteField   string                       `yaml:"notes,omitempty"`
-	MCP         *RemoteMCPServer             `yaml:"mcp,omitempty"`
-	Fragments   map[string]RemoteBundleItem  `yaml:"fragments,omitempty"`
-	Prompts     map[string]RemoteBundleItem  `yaml:"prompts,omitempty"`
+	Version           string                       `yaml:"version"`
+	Description       string                       `yaml:"description,omitempty"`
+	NotesField        string                       `yaml:"notes,omitempty"`        // Human-readable notes
+	InstallationField string                       `yaml:"installation,omitempty"` // Setup/installation instructions
+	MCP               *RemoteMCPServer             `yaml:"mcp,omitempty"`
+	Fragments         map[string]RemoteBundleItem  `yaml:"fragments,omitempty"`
+	Prompts           map[string]RemoteBundleItem  `yaml:"prompts,omitempty"`
 }
 
 // RemoteBundleItem represents a fragment or prompt within a bundle.
 type RemoteBundleItem struct {
-	Tags    []string `yaml:"tags,omitempty"`
-	Content string   `yaml:"content"`
+	Tags         []string `yaml:"tags,omitempty"`
+	Notes        string   `yaml:"notes,omitempty"`        // Human-readable notes
+	Installation string   `yaml:"installation,omitempty"` // Setup/installation instructions
+	Content      string   `yaml:"content"`
 }
 
 func (b RemoteBundle) SecurityWarning() SecurityWarning {
@@ -151,7 +168,13 @@ func (b RemoteBundle) SecurityWarning() SecurityWarning {
 	}
 }
 
-func (b RemoteBundle) Note() string { return b.NoteField }
+func (b RemoteBundle) Note() string { return b.NotesField }
+
+// Notes returns the human-readable notes for this bundle.
+func (b RemoteBundle) Notes() string { return b.NotesField }
+
+// Installation returns setup/installation instructions for this bundle.
+func (b RemoteBundle) Installation() string { return b.InstallationField }
 
 // HasMCP returns true if bundle includes an MCP server.
 func (b RemoteBundle) HasMCP() bool {

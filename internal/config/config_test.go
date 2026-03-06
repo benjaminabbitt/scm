@@ -11,80 +11,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSetDefaultPlugin_ExistingPlugin(t *testing.T) {
-	lm := LMConfig{
-		Plugins: map[string]PluginConfig{
-			"claude-code": {Default: true},
-			"gemini":      {Default: false, Model: "gemini-2.0-flash"},
-		},
-	}
-
-	lm.SetDefaultPlugin("gemini")
-
-	if lm.Plugins["claude-code"].Default {
-		t.Error("expected claude-code Default to be false")
-	}
-	if !lm.Plugins["gemini"].Default {
-		t.Error("expected gemini Default to be true")
-	}
-	if lm.Plugins["gemini"].Model != "gemini-2.0-flash" {
-		t.Error("expected gemini Model to be preserved")
-	}
-}
-
-func TestSetDefaultPlugin_NewPlugin(t *testing.T) {
-	lm := LMConfig{
-		Plugins: map[string]PluginConfig{
-			"claude-code": {Default: true},
-		},
-	}
-
-	lm.SetDefaultPlugin("aider")
-
-	if lm.Plugins["claude-code"].Default {
-		t.Error("expected claude-code Default to be false")
-	}
-	if !lm.Plugins["aider"].Default {
-		t.Error("expected aider Default to be true")
-	}
-}
-
-func TestSetDefaultPlugin_NilPluginsMap(t *testing.T) {
-	lm := LMConfig{}
-
-	lm.SetDefaultPlugin("gemini")
-
-	if lm.Plugins == nil {
-		t.Fatal("expected Plugins map to be initialized")
-	}
-	if !lm.Plugins["gemini"].Default {
-		t.Error("expected gemini Default to be true")
-	}
-}
-
-func TestSetDefaultPlugin_OnlyOneDefault(t *testing.T) {
-	lm := LMConfig{
-		Plugins: map[string]PluginConfig{
-			"claude-code": {Default: true},
-			"gemini":      {Default: true},
-			"aider":       {Default: false},
-		},
-	}
-
-	lm.SetDefaultPlugin("aider")
-
-	defaultCount := 0
-	for _, cfg := range lm.Plugins {
-		if cfg.Default {
-			defaultCount++
+func TestGetDefaultLLMPlugin(t *testing.T) {
+	t.Run("returns configured plugin", func(t *testing.T) {
+		cfg := &Config{
+			Defaults: Defaults{
+				LLMPlugin: "gemini",
+			},
 		}
-	}
-	if defaultCount != 1 {
-		t.Errorf("expected exactly 1 default, got %d", defaultCount)
-	}
-	if !lm.Plugins["aider"].Default {
-		t.Error("expected aider to be the default")
-	}
+		assert.Equal(t, "gemini", cfg.GetDefaultLLMPlugin())
+	})
+
+	t.Run("returns claude-code as fallback", func(t *testing.T) {
+		cfg := &Config{}
+		assert.Equal(t, "claude-code", cfg.GetDefaultLLMPlugin())
+	})
+}
+
+func TestSetDefaultLLMPlugin(t *testing.T) {
+	cfg := &Config{}
+	cfg.SetDefaultLLMPlugin("gemini")
+	assert.Equal(t, "gemini", cfg.Defaults.LLMPlugin)
 }
 
 func TestResolveProfile_HooksInheritance(t *testing.T) {
@@ -472,42 +418,10 @@ func TestMCPConfig_ShouldAutoRegisterSCM(t *testing.T) {
 // =============================================================================
 
 func TestLMConfig_GetDefaultPlugin(t *testing.T) {
-	tests := []struct {
-		name   string
-		config LMConfig
-		want   string
-	}{
-		{
-			name:   "no plugins returns claude-code",
-			config: LMConfig{},
-			want:   "claude-code",
-		},
-		{
-			name: "returns plugin marked default",
-			config: LMConfig{
-				Plugins: map[string]PluginConfig{
-					"claude-code": {Default: false},
-					"gemini":      {Default: true},
-				},
-			},
-			want: "gemini",
-		},
-		{
-			name: "no default marked returns claude-code",
-			config: LMConfig{
-				Plugins: map[string]PluginConfig{
-					"aider": {Default: false},
-				},
-			},
-			want: "claude-code",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, tt.config.GetDefaultPlugin())
-		})
-	}
+	// GetDefaultPlugin always returns "claude-code" as the fallback
+	// The actual default is configured via Config.Defaults.LLMPlugin
+	lm := LMConfig{}
+	assert.Equal(t, "claude-code", lm.GetDefaultPlugin())
 }
 
 func TestLMConfig_GetDefaultModel(t *testing.T) {
@@ -817,9 +731,9 @@ func TestLoadFromDir(t *testing.T) {
 		configContent := `
 llm:
   plugins:
-    claude-code:
-      default: true
+    claude-code: {}
 defaults:
+  llm_plugin: claude-code
   profiles:
     - dev
 `
@@ -828,7 +742,7 @@ defaults:
 		cfg, err := LoadFromDir(tmpDir)
 		require.NoError(t, err)
 		assert.Contains(t, cfg.Defaults.Profiles, "dev")
-		assert.True(t, cfg.LM.Plugins["claude-code"].Default)
+		assert.Equal(t, "claude-code", cfg.Defaults.LLMPlugin)
 	})
 
 	t.Run("returns empty config for missing file", func(t *testing.T) {
@@ -865,11 +779,12 @@ func TestConfig_Save(t *testing.T) {
 		SCMPaths: []string{tmpDir},
 		LM: LMConfig{
 			Plugins: map[string]PluginConfig{
-				"claude-code": {Default: true},
+				"claude-code": {},
 			},
 		},
 		Defaults: Defaults{
-			Profiles: []string{"dev"},
+			LLMPlugin: "claude-code",
+			Profiles:  []string{"dev"},
 		},
 		Profiles: map[string]Profile{
 			"dev": {Description: "development"},
@@ -884,6 +799,7 @@ func TestConfig_Save(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "claude-code")
 	assert.Contains(t, string(data), "- dev")
+	assert.Contains(t, string(data), "llm_plugin")
 }
 
 func TestConfig_Save_NoSCMPaths(t *testing.T) {
@@ -926,9 +842,9 @@ func TestLoad_WithOptions(t *testing.T) {
 	configContent := `
 llm:
   plugins:
-    claude-code:
-      default: true
+    claude-code: {}
 defaults:
+  llm_plugin: claude-code
   profiles:
     - test
 `
@@ -938,6 +854,7 @@ defaults:
 	require.NoError(t, err)
 
 	assert.Contains(t, cfg.Defaults.Profiles, "test")
+	assert.Equal(t, "claude-code", cfg.Defaults.LLMPlugin)
 	assert.Equal(t, []string{scmDir}, cfg.SCMPaths)
 	assert.Equal(t, scmDir, cfg.SCMDir)
 	assert.Equal(t, SourceProject, cfg.Source)
@@ -1236,10 +1153,11 @@ func TestExtractMCPFromBundle(t *testing.T) {
 	bundle := &bundles.Bundle{
 		MCP: map[string]bundles.BundleMCP{
 			"test-server": {
-				Command: "test-cmd",
-				Args:    []string{"--arg1"},
-				Env:     map[string]string{"KEY": "value"},
-				Note:    "Test server",
+				Command:      "test-cmd",
+				Args:         []string{"--arg1"},
+				Env:          map[string]string{"KEY": "value"},
+				Notes:        "Test server",
+				Installation: "npm install test-server",
 			},
 		},
 	}
@@ -1250,7 +1168,7 @@ func TestExtractMCPFromBundle(t *testing.T) {
 	assert.Equal(t, "test-cmd", result["test-server"].Command)
 	assert.Equal(t, []string{"--arg1"}, result["test-server"].Args)
 	assert.Equal(t, "value", result["test-server"].Env["KEY"])
-	assert.Equal(t, "Test server", result["test-server"].Note)
+	assert.Equal(t, "Test server", result["test-server"].Notes)
 	assert.Equal(t, "bundle:my-bundle", result["test-server"].SCM)
 }
 
@@ -1431,8 +1349,11 @@ llm:
 		SCMPaths: []string{tmpDir},
 		LM: LMConfig{
 			Plugins: map[string]PluginConfig{
-				"claude-code": {Default: true},
+				"claude-code": {},
 			},
+		},
+		Defaults: Defaults{
+			LLMPlugin: "claude-code",
 		},
 	}
 
@@ -1530,13 +1451,12 @@ func TestResilientStartup_MalformedConfig(t *testing.T) {
 	scmDir := "/project/.scm"
 	require.NoError(t, fs.MkdirAll(scmDir, 0755))
 
-	// Create malformed YAML
+	// Create malformed YAML (array where object expected)
 	malformedYAML := `
 llm:
   plugins:
     - this is wrong format
-    claude-code:
-      default: true
+    claude-code: {}
 `
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(scmDir, "config.yaml"), []byte(malformedYAML), 0644))
 
@@ -1616,13 +1536,13 @@ func TestResilientStartup_PartiallyValidConfig(t *testing.T) {
 	scmDir := "/project/.scm"
 	require.NoError(t, fs.MkdirAll(scmDir, 0755))
 
-	// Config with some valid and some invalid parts
+	// Config with some valid and some invalid parts (unknown property in plugin)
 	// Schema validation may catch this, but we should still not fail
 	configYAML := `
 llm:
   plugins:
     claude-code:
-      default: true
+      unknown_property: true
 profiles:
   valid-profile:
     description: "This is valid"

@@ -39,9 +39,12 @@ func TestRemoteMCPServer_SecurityWarning(t *testing.T) {
 func TestRemoteMCPServer_Note(t *testing.T) {
 	// Notes allow remote authors to communicate installation instructions
 	server := RemoteMCPServer{
-		NoteField: "This is a test note",
+		NotesField:        "This is a test note",
+		InstallationField: "Run: npm install test-server",
 	}
 	assert.Equal(t, "This is a test note", server.Note())
+	assert.Equal(t, "This is a test note", server.Notes())
+	assert.Equal(t, "Run: npm install test-server", server.Installation())
 }
 
 func TestRemoteContext_SecurityWarning(t *testing.T) {
@@ -55,8 +58,13 @@ func TestRemoteContext_SecurityWarning(t *testing.T) {
 }
 
 func TestRemoteContext_Note(t *testing.T) {
-	ctx := RemoteContext{NoteField: "Context note"}
+	ctx := RemoteContext{
+		NotesField:        "Context note",
+		InstallationField: "Add to your profile",
+	}
 	assert.Equal(t, "Context note", ctx.Note())
+	assert.Equal(t, "Context note", ctx.Notes())
+	assert.Equal(t, "Add to your profile", ctx.Installation())
 }
 
 func TestRemoteBundle_SecurityWarning(t *testing.T) {
@@ -100,8 +108,13 @@ func TestRemoteBundle_SecurityWarning(t *testing.T) {
 }
 
 func TestRemoteBundle_Note(t *testing.T) {
-	bundle := RemoteBundle{NoteField: "Bundle note"}
+	bundle := RemoteBundle{
+		NotesField:        "Bundle note",
+		InstallationField: "Run setup script",
+	}
 	assert.Equal(t, "Bundle note", bundle.Note())
+	assert.Equal(t, "Bundle note", bundle.Notes())
+	assert.Equal(t, "Run setup script", bundle.Installation())
 }
 
 func TestRemoteBundle_HasMCP(t *testing.T) {
@@ -164,7 +177,8 @@ prompts:
 func TestParseSecureContent_Profile(t *testing.T) {
 	// Profiles are parsed as context with potential prompt injection risk
 	yaml := `
-note: Profile note
+notes: Profile note
+installation: Run setup first
 `
 	content, err := ParseSecureContent(ItemTypeProfile, []byte(yaml))
 	require.NoError(t, err)
@@ -172,11 +186,12 @@ note: Profile note
 	ctx, ok := content.(RemoteContext)
 	require.True(t, ok)
 	assert.Equal(t, "Profile note", ctx.Note())
+	assert.Equal(t, "Run setup first", ctx.Installation())
 }
 
 func TestParseSecureContent_DefaultType(t *testing.T) {
 	// Unknown types default to context - safe fallback with prompt injection warning
-	yaml := `note: Context note`
+	yaml := `notes: Context note`
 	content, err := ParseSecureContent(ItemType("other"), []byte(yaml))
 	require.NoError(t, err)
 
