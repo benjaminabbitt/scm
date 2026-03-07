@@ -83,6 +83,16 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create config.yaml: %w", err)
 	}
 
+	// Create remotes.yaml with default remote (scm-github)
+	remotesPath := filepath.Join(scmDir, "remotes.yaml")
+	remotesContent, err := resources.GetDefaultRemotes()
+	if err != nil {
+		return fmt.Errorf("failed to read default remotes: %w", err)
+	}
+	if err := os.WriteFile(remotesPath, remotesContent, 0644); err != nil {
+		return fmt.Errorf("failed to create remotes.yaml: %w", err)
+	}
+
 	fmt.Printf("Initialized SCM directory: %s\n", scmDir)
 
 	// Apply hooks to register MCP server
