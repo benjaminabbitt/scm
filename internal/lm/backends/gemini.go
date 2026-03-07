@@ -99,7 +99,7 @@ func (b *Gemini) Execute(ctx context.Context, req *ExecuteRequest, stdout, stder
 
 	// Verbosity level 16+: show command
 	if req.Verbosity >= 16 {
-		fmt.Fprintf(stderr, "[v16] %s %s\n", b.BinaryPath, strings.Join(args, " "))
+		_, _ = fmt.Fprintf(stderr, "[v16] %s %s\n", b.BinaryPath, strings.Join(args, " "))
 	}
 
 	// Build env with context file path
