@@ -5,7 +5,7 @@ import (
 	"embed"
 )
 
-//go:embed all:schema example-config.yaml
+//go:embed all:schema example-config.yaml default-remotes.yaml
 var resourcesFS embed.FS
 
 // GetFragmentSchema returns the embedded JSON schema for fragment validation.
@@ -21,4 +21,9 @@ func GetConfigSchema() ([]byte, error) {
 // GetExampleConfig returns the embedded example config file.
 func GetExampleConfig() ([]byte, error) {
 	return resourcesFS.ReadFile("example-config.yaml")
+}
+
+// GetDefaultRemotes returns the embedded default remotes file.
+func GetDefaultRemotes() ([]byte, error) {
+	return resourcesFS.ReadFile("default-remotes.yaml")
 }

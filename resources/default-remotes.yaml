@@ -1,0 +1,7 @@
+# SCM Remote Sources
+# Pre-configured remotes for common SCM bundles and profiles
+
+remotes:
+  scm-github:
+    url: https://github.com/benjaminabbitt/scm-github
+    version: v1
