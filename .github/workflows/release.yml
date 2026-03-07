@@ -13,7 +13,7 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     container:
-      image: golang:1.23
+      image: golang:1.24
 
     steps:
       - name: Checkout code
@@ -23,24 +23,32 @@ jobs:
 
       - name: Install dependencies
         run: |
-          apt-get update && apt-get install -y git curl upx
+          apt-get update && apt-get install -y git curl upx unzip
 
       - name: Mark workspace as safe
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Install versionator
+      - name: Install build tools
         run: |
-          curl -sSL https://github.com/benjaminabbitt/versionator/releases/latest/download/versionator_linux_amd64.tar.gz | tar xz -C /usr/local/bin
+          # Install just
+          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+          # Install versionator
+          curl -sSL https://github.com/benjaminabbitt/versionator/releases/download/v0.0.4/versionator-linux-amd64 -o /usr/local/bin/versionator
+          chmod +x /usr/local/bin/versionator
+          # Install buf
+          curl -sSL https://github.com/bufbuild/buf/releases/latest/download/buf-Linux-x86_64 -o /usr/local/bin/buf
+          chmod +x /usr/local/bin/buf
+          # Install GoReleaser
+          curl -sSL https://github.com/goreleaser/goreleaser/releases/latest/download/goreleaser_Linux_x86_64.tar.gz | tar xz -C /usr/local/bin goreleaser
+
+      - name: Generate protobuf code
+        run: buf generate
 
       - name: Validate schemas
         run: go run ./cmd/validate
 
       - name: Distill resources
         run: go run . distill ./resources
-
-      - name: Install GoReleaser
-        run: |
-          curl -sSL https://github.com/goreleaser/goreleaser/releases/latest/download/goreleaser_Linux_x86_64.tar.gz | tar xz -C /usr/local/bin goreleaser
 
       - name: Run GoReleaser
         run: goreleaser release --clean

@@ -18,22 +18,17 @@ build-scm:
 
 # ===== Plugin targets =====
 
-# Generate protobuf code
+# Generate protobuf code using buf
 proto:
-    protoc --go_out=. --go_opt=paths=source_relative \
-           --go-grpc_out=. --go-grpc_opt=paths=source_relative \
-           internal/lm/grpc/plugin.proto
+    buf generate
 
-# Check protoc is installed
+# Check buf is installed
 proto-check:
-    @which protoc > /dev/null || (echo "protoc not installed. Install with: brew install protobuf" && exit 1)
-    @which protoc-gen-go > /dev/null || (echo "protoc-gen-go not installed. Install with: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest" && exit 1)
-    @which protoc-gen-go-grpc > /dev/null || (echo "protoc-gen-go-grpc not installed. Install with: go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest" && exit 1)
+    @which buf > /dev/null || (echo "buf not installed. Install with: brew install bufbuild/buf/buf" && exit 1)
 
-# Install protobuf tools
+# Install buf (alternative to brew)
 proto-tools:
-    go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+    @echo "Install buf from https://buf.build/docs/installation"
 
 # List available plugins
 plugin-list:
