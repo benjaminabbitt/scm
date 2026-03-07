@@ -45,13 +45,9 @@ plugin-list:
 build-verbose:
     go build -v -ldflags "-X github.com/benjaminabbitt/scm/cmd.Version={{version}}" -o scm .
 
-# Run unit tests (excludes acceptance tests)
-test-unit:
-    go test -race -coverprofile=coverage.out $(go list ./... | grep -v /tests/acceptance)
-
-# Run all tests (requires scm binary for acceptance tests)
-test:
-    go test ./...
+# Run all tests (builds scm first for acceptance tests)
+test: build-scm
+    go test -race -coverprofile=coverage.out ./...
 
 # Run tests with verbose output
 test-verbose:

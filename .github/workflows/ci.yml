@@ -52,8 +52,8 @@ jobs:
       - name: Generate protobuf code
         run: just proto
 
-      - name: Run unit tests
-        run: just test-unit
+      - name: Run tests
+        run: just test
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
