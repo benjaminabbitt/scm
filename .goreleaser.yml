@@ -20,22 +20,6 @@ builds:
     ldflags:
       - -s -w -X github.com/benjaminabbitt/scm/cmd.Version={{.Version}}
 
-  # simple generator
-  - id: scm-gen-simple
-    main: ./cmd/generators/simple/main.go
-    binary: scm-gen-simple
-    env:
-      - CGO_ENABLED=0
-    goos:
-      - linux
-      - darwin
-      - windows
-    goarch:
-      - amd64
-      - arm64
-    ldflags:
-      - -s -w
-
 # UPX compression for smaller binaries
 upx:
   - enabled: true
@@ -50,7 +34,6 @@ archives:
     # Include binaries in each archive
     builds:
       - scm
-      - scm-gen-simple
     name_template: >-
       {{ .ProjectName }}_
       {{- .Version }}_
@@ -126,6 +109,5 @@ brews:
     license: "MIT"
     install: |
       bin.install "scm"
-      bin.install "scm-gen-simple"
     test: |
       system "#{bin}/scm", "version"
