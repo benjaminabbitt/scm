@@ -385,7 +385,7 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 	// Update lockfile with provenance (use local name as key)
 	if err := p.updateLockfile(localName, opts.ItemType, rem, sha, requestedVersion); err != nil {
 		// Log warning but don't fail the pull
-		fmt.Fprintf(opts.Stdout, "Warning: failed to update lockfile: %v\n", err)
+		_, _ = fmt.Fprintf(opts.Stdout, "Warning: failed to update lockfile: %v\n", err)
 	}
 
 	result := &PullResult{
@@ -489,10 +489,10 @@ func displaySecurityWarning(w io.Writer, ref *Reference, rem *Remote, sha, fileP
 	_, _ = fmt.Fprintln(w, "")
 
 	// Source info
-	fmt.Fprintf(w, "Source: %s @ %s\n", rem.URL, sha)
-	fmt.Fprintf(w, "Org:    %s\n", ref.Remote)
-	fmt.Fprintf(w, "Name:   %s\n", ref.Path)
-	fmt.Fprintf(w, "Path:   %s\n", filePath)
+	_, _ = fmt.Fprintf(w, "Source: %s @ %s\n", rem.URL, sha)
+	_, _ = fmt.Fprintf(w, "Org:    %s\n", ref.Remote)
+	_, _ = fmt.Fprintf(w, "Name:   %s\n", ref.Path)
+	_, _ = fmt.Fprintf(w, "Path:   %s\n", filePath)
 
 	// Display note if present
 	if note := secure.Note(); note != "" {
@@ -501,17 +501,17 @@ func displaySecurityWarning(w io.Writer, ref *Reference, rem *Remote, sha, fileP
 		if len(note) > maxNoteLen {
 			note = note[:maxNoteLen-3] + "..."
 		}
-		fmt.Fprintln(w, "")
-		fmt.Fprintf(w, "Note: %s\n", note)
+		_, _ = fmt.Fprintln(w, "")
+		_, _ = fmt.Fprintf(w, "Note: %s\n", note)
 	}
 
-	fmt.Fprintln(w, "")
+	_, _ = fmt.Fprintln(w, "")
 
 	// Content with pager for long content
 	contentStr := string(content)
 	lineCount := strings.Count(contentStr, "\n") + 1
 
-	fmt.Fprintln(w, "─────────────────── CONTENT START ───────────────────")
+	_, _ = fmt.Fprintln(w, "─────────────────── CONTENT START ───────────────────")
 
 	// Use pager for long content if terminal
 	if lineCount > 50 && tc.IsTerminalWriter(w) {
