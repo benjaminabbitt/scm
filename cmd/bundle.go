@@ -1030,7 +1030,7 @@ func buildSiblingContext(bundle *bundles.Bundle, excludeName string) string {
 					desc = desc[:57] + "..."
 				}
 			}
-			ctx.WriteString(fmt.Sprintf("- %s: %s\n", name, desc))
+			_, _ = fmt.Fprintf(&ctx, "- %s: %s\n", name, desc)
 		}
 	}
 

@@ -69,8 +69,8 @@ func (b *Mock) Execute(ctx context.Context, req *ExecuteRequest, stdout, stderr 
 	if recordFile != "" {
 		var input strings.Builder
 		input.WriteString("=== Arguments ===\n")
-		input.WriteString(fmt.Sprintf("mode=%d\n", req.Mode))
-		input.WriteString(fmt.Sprintf("fragments=%d\n", len(b.fragments)))
+		_, _ = fmt.Fprintf(&input, "mode=%d\n", req.Mode)
+		_, _ = fmt.Fprintf(&input, "fragments=%d\n", len(b.fragments))
 		input.WriteString("=== Context ===\n")
 		input.WriteString(contextStr)
 		input.WriteString("\n=== Prompt ===\n")
@@ -78,7 +78,7 @@ func (b *Mock) Execute(ctx context.Context, req *ExecuteRequest, stdout, stderr 
 		input.WriteString("\n")
 
 		if err := os.WriteFile(recordFile, []byte(input.String()), 0644); err != nil {
-			fmt.Fprintf(stderr, "warning: failed to write record file: %v\n", err)
+			_, _ = fmt.Fprintf(stderr, "warning: failed to write record file: %v\n", err)
 		}
 	}
 
