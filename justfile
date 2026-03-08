@@ -54,7 +54,7 @@ test-coverage:
 
 # Run integration tests (requires scm binary)
 test-integration: build-scm
-    go test -v ./tests/integration/...
+    go test -v -tags integration ./tests/integration/...
 
 # Run all tests in container (matches CI environment)
 test-container:
@@ -62,7 +62,7 @@ test-container:
         go mod download && \
         go test -race ./... && \
         CGO_ENABLED=0 go build -o scm . && \
-        go test -v ./tests/integration/...'
+        go test -v -tags integration ./tests/integration/...'
 
 # ===== Mutation testing =====
 

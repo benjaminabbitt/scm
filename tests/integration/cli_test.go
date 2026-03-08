@@ -1,3 +1,5 @@
+//go:build integration
+
 package integration
 
 import (
@@ -53,16 +55,16 @@ func writeFragment(t *testing.T, env *testenv.TestEnvironment, name string, tags
 	}
 
 	// Add the new fragment
-	bundle.WriteString(fmt.Sprintf("  %s:\n", name))
+	fmt.Fprintf(&bundle, "  %s:\n", name)
 	if len(tags) > 0 {
 		bundle.WriteString("    tags:\n")
 		for _, tag := range tags {
-			bundle.WriteString(fmt.Sprintf("      - %s\n", tag))
+			fmt.Fprintf(&bundle, "      - %s\n", tag)
 		}
 	}
 	bundle.WriteString("    content: |\n")
 	for _, line := range strings.Split(content, "\n") {
-		bundle.WriteString(fmt.Sprintf("      %s\n", line))
+		fmt.Fprintf(&bundle, "      %s\n", line)
 	}
 
 	require.NoError(t, env.WriteFile(bundlePath, bundle.String()), "failed to write fragment")
@@ -72,12 +74,6 @@ func writeProfile(t *testing.T, env *testenv.TestEnvironment, name, content stri
 	t.Helper()
 	path := fmt.Sprintf(".scm/profiles/%s.yaml", name)
 	require.NoError(t, env.WriteFile(path, content), "failed to write profile")
-}
-
-func writePrompt(t *testing.T, env *testenv.TestEnvironment, name, content string) {
-	t.Helper()
-	path := fmt.Sprintf(".scm/prompts/%s.md", name)
-	require.NoError(t, env.WriteFile(path, content), "failed to write prompt")
 }
 
 // =============================================================================
