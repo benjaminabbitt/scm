@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/benjaminabbitt/scm/internal/ptyrunner"
 )
 
 // BaseBackend provides common functionality for all AI backends.
@@ -70,35 +72,20 @@ func (b *BaseBackend) BuildEnv(reqEnv map[string]string) []string {
 	return env
 }
 
-// RunInteractive runs a command in interactive mode.
-// The command inherits the terminal directly from the parent process.
+// RunInteractive runs a command in interactive mode using a PTY.
+// The PTY ensures the child process sees a terminal, enabling interactive CLI tools
+// to work correctly even when stdin is a pipe (e.g., from go-plugin gRPC).
 func (b *BaseBackend) RunInteractive(ctx context.Context, args []string, env map[string]string, stdout, stderr interface{ Write([]byte) (int, error) }) (int32, error) {
 	cmd := exec.CommandContext(ctx, b.BinaryPath, args...)
 	cmd.Dir = b.WorkDir()
 	cmd.Env = b.BuildEnv(env)
 
-	// Inherit terminal directly - child gets the real TTY
-	cmd.Stdin = os.Stdin
-	if stdout != nil {
-		cmd.Stdout = io.MultiWriter(os.Stdout, stdout)
-	} else {
-		cmd.Stdout = os.Stdout
-	}
-	if stderr != nil {
-		cmd.Stderr = io.MultiWriter(os.Stderr, stderr)
-	} else {
-		cmd.Stderr = os.Stderr
-	}
-
-	err := cmd.Run()
+	result, err := ptyrunner.RunInteractive(ctx, cmd, stdout, stderr)
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return int32(exitErr.ExitCode()), nil
-		}
 		return 1, fmt.Errorf("failed to run %s: %w", b.name, err)
 	}
 
-	return 0, nil
+	return int32(result.ExitCode), nil
 }
 
 // RunNonInteractive runs a command in non-interactive mode.
