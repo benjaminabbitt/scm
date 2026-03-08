@@ -1,6 +1,8 @@
 module github.com/SophisticatedContextManager/scm
 
-go 1.26.0
+go 1.24.0
+
+toolchain go1.24.4
 
 require (
 	github.com/aymanbagabas/go-pty v0.2.2

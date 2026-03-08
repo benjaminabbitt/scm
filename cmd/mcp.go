@@ -379,31 +379,47 @@ type pendingPull struct {
 	RemoteURL string          `json:"remote_url"`
 }
 
+type readResult struct {
+	line []byte
+	err  error
+}
+
 func (s *mcpServer) run(ctx context.Context) error {
+	lineCh := make(chan readResult, 1)
+
+	// Start reader goroutine
+	go func() {
+		for {
+			line, err := s.reader.ReadBytes('\n')
+			lineCh <- readResult{line, err}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		default:
-		}
-
-		line, err := s.reader.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				return nil
+		case result := <-lineCh:
+			if result.err != nil {
+				if result.err == io.EOF {
+					return nil
+				}
+				return result.err
 			}
-			return err
-		}
 
-		var req mcpRequest
-		if err := json.Unmarshal(line, &req); err != nil {
-			s.sendError(nil, -32700, "Parse error")
-			continue
-		}
+			var req mcpRequest
+			if err := json.Unmarshal(result.line, &req); err != nil {
+				s.sendError(nil, -32700, "Parse error")
+				continue
+			}
 
-		resp := s.handleRequest(ctx, &req)
-		if resp != nil {
-			s.sendResponse(resp)
+			resp := s.handleRequest(ctx, &req)
+			if resp != nil {
+				s.sendResponse(resp)
+			}
 		}
 	}
 }
