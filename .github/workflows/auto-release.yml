@@ -5,7 +5,7 @@ on:
     workflows: ["CI"]
     types:
       - completed
-    branches: [initial-prototyping]
+    branches: [main]
 
 permissions:
   contents: write
@@ -59,7 +59,7 @@ jobs:
       - name: Create and push tag
         run: |
           git tag "${{ steps.new.outputs.version }}"
-          git push origin HEAD:initial-prototyping
+          git push origin HEAD:main
           git push origin "${{ steps.new.outputs.version }}"
 
       - name: Summary
