@@ -1,0 +1,49 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "fileMatch": ["^\\.github/workflows/.*\\.ya?ml$"],
+      "matchStrings": [
+        "https://github\\.com/(?<depName>benjaminabbitt/versionator)/releases/download/v(?<currentValue>[^/]+)/"
+      ],
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": ["^\\.github/workflows/.*\\.ya?ml$"],
+      "matchStrings": [
+        "https://github\\.com/(?<depName>goreleaser/goreleaser)/releases/[^/]+/download/goreleaser_Linux"
+      ],
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": ["^justfile$"],
+      "matchStrings": [
+        "go install github\\.com/go-gremlins/gremlins/cmd/gremlins@v(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/go-gremlins/gremlins",
+      "datasourceTemplate": "go"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "automerge": true
+    },
+    {
+      "matchDepNames": ["benjaminabbitt/versionator"],
+      "groupName": "versionator"
+    }
+  ]
+}
