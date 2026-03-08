@@ -9,7 +9,7 @@ exclude-files:
   - ".*\\.pb\\.go$"
   - ".*/mock_.*\\.go$"
   - ".*/testdata/.*"
-  - ".*/tests/.*"
+  - ".*/tests/integration/.*"
 
 unleash:
   # Don't run integration tests (use unit tests only for speed)
