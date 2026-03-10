@@ -10,14 +10,13 @@
 //  2. Writes backend-specific settings files with hooks
 //  3. Writes .mcp.json with MCP server configs
 //  4. Optionally regenerates context file from active profiles
-//  5. Creates symlink to SCM binary for backend access
+//  5. Sets executable path for hook and MCP commands
 //
 // # Test Injection Patterns
 //
 // Tests inject dependencies to avoid real filesystem operations:
 //   - ConfigLoader: Function returning mock config instead of reading disk
 //   - FS: afero virtual filesystem for settings file writes
-//   - SkipSymlink: Disables symlink creation (MemMapFs doesn't support symlinks)
 //   - WorkDir: Explicit working directory instead of git root detection
 //   - BundleLoaderFS: Separate FS for bundle reading in context regeneration
 //
@@ -302,26 +301,6 @@ func TestWriteContextFile_Empty(t *testing.T) {
 	assert.Empty(t, hash)
 }
 
-// TestEnsureSCMSymlink tests symlink creation with FS injection.
-func TestEnsureSCMSymlink_CreatesBinDir(t *testing.T) {
-	// Use real OS filesystem for symlink support
-	tmpDir := t.TempDir()
-
-	// Create a dummy executable to link to
-	execPath := tmpDir + "/scm-binary"
-	require.NoError(t, afero.WriteFile(afero.NewOsFs(), execPath, []byte("#!/bin/sh\necho scm"), 0755))
-
-	symlinkPath, err := backends.EnsureSCMSymlink(tmpDir,
-		backends.WithExecPath(execPath))
-	require.NoError(t, err)
-	assert.Contains(t, symlinkPath, ".scm/bin/scm")
-
-	// Verify directory was created
-	info, err := afero.NewOsFs().Stat(tmpDir + "/.scm/bin")
-	require.NoError(t, err)
-	assert.True(t, info.IsDir())
-}
-
 // ==========================================================================
 // ApplyHooks integration tests
 // ==========================================================================
@@ -348,7 +327,7 @@ func TestApplyHooks_ClaudeCodeOnly(t *testing.T) {
 		}, nil
 	}
 
-	// Create a dummy executable path for symlink
+	// Set executable path for testing
 	execPath := "/usr/bin/scm"
 
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
@@ -357,7 +336,6 @@ func TestApplyHooks_ClaudeCodeOnly(t *testing.T) {
 		ExecPath:     execPath,
 		ConfigLoader: mockConfigLoader,
 		WorkDir:      tmpDir,
-		SkipSymlink:  true, // MemMapFs doesn't support symlinks
 	})
 
 	require.NoError(t, err)
@@ -399,7 +377,6 @@ func TestApplyHooks_GeminiOnly(t *testing.T) {
 		ExecPath:     "/usr/bin/scm",
 		ConfigLoader: mockConfigLoader,
 		WorkDir:      tmpDir,
-		SkipSymlink:  true,
 	})
 
 	require.NoError(t, err)
@@ -436,7 +413,6 @@ func TestApplyHooks_AllBackends(t *testing.T) {
 		ExecPath:     "/usr/bin/scm",
 		ConfigLoader: mockConfigLoader,
 		WorkDir:      tmpDir,
-		SkipSymlink:  true,
 	})
 
 	require.NoError(t, err)
@@ -470,7 +446,6 @@ func TestApplyHooks_DefaultBackend(t *testing.T) {
 		ExecPath:     "/usr/bin/scm",
 		ConfigLoader: mockConfigLoader,
 		WorkDir:      tmpDir,
-		SkipSymlink:  true,
 	})
 
 	require.NoError(t, err)
@@ -491,7 +466,6 @@ func TestApplyHooks_ConfigLoadError(t *testing.T) {
 		ExecPath:     "/usr/bin/scm",
 		ConfigLoader: mockConfigLoader,
 		WorkDir:      "/project",
-		SkipSymlink:  true,
 	})
 
 	require.Error(t, err)
@@ -522,7 +496,6 @@ func TestApplyHooks_WithMCPServers(t *testing.T) {
 		ExecPath:     "/usr/bin/scm",
 		ConfigLoader: mockConfigLoader,
 		WorkDir:      tmpDir,
-		SkipSymlink:  true,
 	})
 
 	require.NoError(t, err)
@@ -566,7 +539,6 @@ func TestApplyHooks_RegenerateContextEmpty(t *testing.T) {
 		ExecPath:          "/usr/bin/scm",
 		ConfigLoader:      mockConfigLoader,
 		WorkDir:           tmpDir,
-		SkipSymlink:       true,
 	})
 
 	require.NoError(t, err)
@@ -616,7 +588,6 @@ fragments:
 		ExecPath:          "/usr/bin/scm",
 		ConfigLoader:      mockConfigLoader,
 		WorkDir:           tmpDir,
-		SkipSymlink:       true,
 	})
 
 	require.NoError(t, err)
@@ -660,7 +631,6 @@ fragments:
 		ExecPath:          "/usr/bin/scm",
 		ConfigLoader:      mockConfigLoader,
 		WorkDir:           tmpDir,
-		SkipSymlink:       true,
 	})
 
 	require.NoError(t, err)
@@ -714,7 +684,6 @@ fragments:
 		ExecPath:          "/usr/bin/scm",
 		ConfigLoader:      mockConfigLoader,
 		WorkDir:           tmpDir,
-		SkipSymlink:       true,
 	})
 
 	require.NoError(t, err)
@@ -768,42 +737,12 @@ fragments:
 		ExecPath:          "/usr/bin/scm",
 		ConfigLoader:      mockConfigLoader,
 		WorkDir:           tmpDir,
-		SkipSymlink:       true,
 	})
 
 	require.NoError(t, err)
 	assert.Equal(t, "applied", result.Status)
 	// Should still work, just skip the missing fragment
 	assert.NotEmpty(t, result.ContextHash)
-}
-
-// TestApplyHooks_CreatesSymlink tests that the SCM symlink directory is created.
-func TestApplyHooks_CreatesSymlink(t *testing.T) {
-	// Use real filesystem for symlink support
-	tmpDir := t.TempDir()
-
-	// Create a dummy executable to link to
-	execPath := tmpDir + "/scm-binary"
-	require.NoError(t, afero.WriteFile(afero.NewOsFs(), execPath, []byte("#!/bin/sh\necho scm"), 0755))
-
-	mockConfigLoader := func() (*config.Config, error) {
-		return &config.Config{}, nil
-	}
-
-	_, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
-		Backend:      "claude-code",
-		ExecPath:     execPath,
-		ConfigLoader: mockConfigLoader,
-		WorkDir:      tmpDir,
-		// No SkipSymlink - we want to test symlink creation
-	})
-
-	require.NoError(t, err)
-
-	// Verify .scm/bin directory was created
-	exists, err := afero.DirExists(afero.NewOsFs(), tmpDir+"/.scm/bin")
-	require.NoError(t, err)
-	assert.True(t, exists)
 }
 
 // TestApplyHooks_NoWorkDir tests that ApplyHooks works without explicit WorkDir.
@@ -821,7 +760,6 @@ func TestApplyHooks_NoWorkDir(t *testing.T) {
 		ExecPath:     "/usr/bin/scm",
 		ConfigLoader: mockConfigLoader,
 		// WorkDir not set - will use "." or git root
-		SkipSymlink: true,
 	})
 
 	require.NoError(t, err)
@@ -852,7 +790,6 @@ func TestApplyHooks_RegenerateContextNoFragments(t *testing.T) {
 		ExecPath:          "/usr/bin/scm",
 		ConfigLoader:      mockConfigLoader,
 		WorkDir:           tmpDir,
-		SkipSymlink:       true,
 		BundleLoaderFS:    fs,
 	})
 

@@ -82,16 +82,27 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdout, stderr io.Writer
 		}
 	}()
 
-	// Copy PTY output to stdout
+	// Copy PTY output to stdout in a goroutine
 	var stdoutBuf bytes.Buffer
-	if stdout != nil {
-		_, _ = io.Copy(io.MultiWriter(os.Stdout, stdout, &stdoutBuf), ptty)
-	} else {
-		_, _ = io.Copy(io.MultiWriter(os.Stdout, &stdoutBuf), ptty)
-	}
+	copyDone := make(chan struct{})
+	go func() {
+		defer close(copyDone)
+		if stdout != nil {
+			_, _ = io.Copy(io.MultiWriter(os.Stdout, stdout, &stdoutBuf), ptty)
+		} else {
+			_, _ = io.Copy(io.MultiWriter(os.Stdout, &stdoutBuf), ptty)
+		}
+	}()
 
-	// Wait for command to finish
+	// Wait for command to finish first
 	err = c.Wait()
+
+	// Close PTY to unblock the copy goroutine
+	// (subprocess MCP servers may still have it open, causing io.Copy to block)
+	_ = ptty.Close()
+
+	// Wait for copy to finish
+	<-copyDone
 
 	result := &Result{
 		Output:   stdoutBuf.String(),

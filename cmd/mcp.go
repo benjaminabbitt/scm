@@ -404,20 +404,30 @@ func (s *mcpServer) run(ctx context.Context) error {
 		}
 	}()
 
+	// Connection health check ticker - detects when client disappears without closing
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	originalPPID := os.Getppid()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
+		case <-ticker.C:
+			// Check if parent process has changed (reparented to init/systemd)
+			// This detects when the client process has exited but stdin hasn't closed
+			currentPPID := os.Getppid()
+			if currentPPID != originalPPID {
+				fmt.Fprintf(os.Stderr, "SCM MCP: parent changed %d -> %d, exiting\n", originalPPID, currentPPID)
+				return nil
+			}
 		case result := <-lineCh:
 			if result.err != nil {
-				if result.err == io.EOF {
-					return nil
-				}
-				// Stdin closed (expected on shutdown)
-				if ctx.Err() != nil {
-					return nil
-				}
-				return result.err
+				// Any stdin read error means the client disconnected.
+				// This is normal - treat all read errors as graceful shutdown.
+				// Common cases: io.EOF, os.ErrClosed, pipe broken, etc.
+				fmt.Fprintf(os.Stderr, "SCM MCP: stdin closed: %v\n", result.err)
+				return nil
 			}
 
 			var req mcpRequest
@@ -425,6 +435,9 @@ func (s *mcpServer) run(ctx context.Context) error {
 				s.sendError(nil, -32700, "Parse error")
 				continue
 			}
+
+			// Debug: log incoming requests
+			fmt.Fprintf(os.Stderr, "SCM MCP: received %s (id=%v)\n", req.Method, req.ID)
 
 			resp := s.handleRequest(ctx, &req)
 			if resp != nil {

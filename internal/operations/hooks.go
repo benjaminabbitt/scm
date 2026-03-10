@@ -22,7 +22,6 @@ type ApplyHooksRequest struct {
 	ExecPath          string           `json:"-"`                  // Optional executable path for testing
 	ConfigLoader      ConfigLoaderFunc `json:"-"`                  // Optional config loader for testing (defaults to config.Load)
 	WorkDir           string           `json:"-"`                  // Optional work directory for testing (defaults to git root)
-	SkipSymlink       bool             `json:"-"`                  // Skip symlink creation for testing with MemMapFs
 	BundleLoaderFS    afero.Fs         `json:"-"`                  // Optional FS for bundle loader (for testing regenerateContext)
 }
 
@@ -49,11 +48,11 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 
 	// Build options for FS injection
 	settingsOpts := []backends.SettingsOption{backends.WithSettingsFS(fs)}
-	symlinkOpts := []backends.SymlinkOption{backends.WithSymlinkFS(fs)}
 	contextOpts := []backends.ContextFileOption{backends.WithContextFS(fs)}
 
+	// Set executable path for testing if provided
 	if req.ExecPath != "" {
-		symlinkOpts = append(symlinkOpts, backends.WithExecPath(req.ExecPath))
+		backends.SetExecutablePathForTesting(req.ExecPath)
 	}
 
 	// Reload config to ensure freshness (use injected loader if provided)
@@ -74,13 +73,6 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 		workDir = "."
 		if root, err := gitutil.FindRoot("."); err == nil {
 			workDir = root
-		}
-	}
-
-	// Ensure SCM symlink exists (skip in tests with MemMapFs which doesn't support symlinks)
-	if !req.SkipSymlink {
-		if _, err := backends.EnsureSCMSymlink(workDir, symlinkOpts...); err != nil {
-			return nil, fmt.Errorf("failed to create scm symlink: %w", err)
 		}
 	}
 

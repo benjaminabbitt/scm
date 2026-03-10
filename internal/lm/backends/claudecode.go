@@ -69,11 +69,6 @@ func (b *ClaudeCode) MCP() MCPManager {
 func (b *ClaudeCode) Setup(ctx context.Context, req *SetupRequest) error {
 	b.SetWorkDir(req.WorkDir)
 
-	// Create symlink to scm binary for hook invocation
-	if _, err := EnsureSCMSymlink(b.WorkDir()); err != nil {
-		return fmt.Errorf("failed to create scm symlink: %w", err)
-	}
-
 	// Provide context via the context provider
 	if err := b.context.Provide(b.WorkDir(), req.Fragments); err != nil {
 		return fmt.Errorf("failed to provide context: %w", err)
