@@ -82,4 +82,91 @@ fragments:
 
 ## Templating
 
-Fragments support [Mustache](https://mustache.github.io/) templating. See the [Templating Guide](/guides/templating) for details.
+Fragments support [Mustache](https://mustache.github.io/) templating for dynamic content.
+
+### Basic Variables
+
+```yaml
+fragments:
+  project-context:
+    variables: [PROJECT_NAME, LANGUAGE]  # Document required variables
+    content: |
+      # {{ PROJECT_NAME }} Development
+
+      This {{ LANGUAGE }} project follows these standards:
+      - Use standard formatting tools
+      - Write tests for all new code
+```
+
+Variables are defined in profiles:
+
+```yaml
+# .scm/profiles/my-project.yaml
+variables:
+  PROJECT_NAME: "my-api"
+  LANGUAGE: "Go"
+bundles:
+  - my-standards
+```
+
+### Conditional Sections
+
+Mustache supports conditional sections:
+
+- `#VAR` - renders section if VAR is truthy
+- `^VAR` - renders section if VAR is falsy
+- `/VAR` - closes a section
+
+```text
+## Deployment
+
+{#USE_DOCKER}
+### Docker Build
+docker build -t app .
+docker push registry/app
+{/USE_DOCKER}
+
+{#CI_PLATFORM}
+CI/CD runs on {CI_PLATFORM}.
+{/CI_PLATFORM}
+
+{^USE_DOCKER}
+Deploy directly without containerization.
+{/USE_DOCKER}
+```
+
+Note: In actual YAML, use double braces: `{` becomes `{{` and `}` becomes `}}`.
+
+### Built-in Variables
+
+These are always available:
+
+| Variable | Description |
+|----------|-------------|
+| `SCM_ROOT` | Project root directory |
+| `SCM_DIR` | Path to .scm directory |
+
+```yaml
+fragments:
+  paths:
+    content: |
+      Project: {{ SCM_ROOT }}
+      Config: {{ SCM_DIR }}/config.yaml
+```
+
+See the [Templating Guide](/guides/templating) for complete syntax and advanced features.
+
+## Distillation
+
+Fragments can be distilled (AI-compressed) to reduce token usage. See the [Distillation Guide](/guides/distillation) for details.
+
+```yaml
+fragments:
+  verbose-guide:
+    content: |
+      [Long, detailed content...]
+    distilled: |
+      [AI-compressed version...]
+    content_hash: "sha256:abc123..."
+    no_distill: false  # Set true to prevent distillation
+```
