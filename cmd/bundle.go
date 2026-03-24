@@ -14,6 +14,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/SophisticatedContextManager/scm/internal/bundles"
+	"github.com/SophisticatedContextManager/scm/internal/compression"
 	"github.com/SophisticatedContextManager/scm/internal/config"
 	pb "github.com/SophisticatedContextManager/scm/internal/lm/grpc"
 	"github.com/SophisticatedContextManager/scm/internal/remote"
@@ -1113,7 +1114,30 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 }
 
 // defaultDistillPrompt is used when no distill prompt is found in bundles.
-const defaultDistillPrompt = `You are a context compression assistant. Compress the following content while preserving all essential information for an AI coding assistant. Remove redundancy, simplify language, use abbreviations where clear, and maintain technical accuracy. Output only the compressed content.`
+const defaultDistillPrompt = `You are a context compression assistant for AI coding assistants.
+
+TASK: Compress the content by removing unimportant words while preserving meaning.
+
+PRESERVE (never remove):
+- Code syntax and exact patterns
+- Function/file/variable names (breadcrumbs for navigation)
+- Error handling rules and edge cases
+- Actionable instructions ("DO X", "NEVER do Y")
+- Technical constraints and requirements
+
+COMPRESS AGGRESSIVELY:
+- Verbose explanations of "why"
+- Redundant examples (keep 1 best example per concept)
+- Motivational/philosophical content
+- Historical context unless directly actionable
+
+RULES:
+- Use bullet points and abbreviations where clear
+- Do NOT add new information or rephrase semantics
+- Output format: same structure, fewer words
+- Target: 30-50% of original size
+
+Output only the compressed content.`
 
 // loadDistillPrompt loads the distillation prompt from bundles.
 func loadDistillPrompt() (string, error) {
@@ -1187,8 +1211,45 @@ func buildSiblingContext(bundle *bundles.Bundle, excludeName string) string {
 	return ctx.String()
 }
 
-// distillWithModel sends content through the LLM and returns distilled content and model ID.
+// compressionRouter is a shared router for AST/JSON compression.
+var compressionRouter = compression.NewRouter()
+
+// distillWithModel sends content through compression and returns distilled content and model ID.
+// It first tries AST-based compression for code and JSON structure compression for JSON content.
+// For text/markdown content (or if AST compression doesn't achieve good compression), it falls back to LLM.
 func distillWithModel(pluginName string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
+	ctx := context.Background()
+
+	// Detect content type and try AST/JSON compression first
+	contentType := compression.DetectContentType(name, content)
+
+	// For code and JSON, try fast local compression
+	if isStructuredContent(contentType) {
+		result, err := compressionRouter.CompressWithType(ctx, contentType, content, 0.5)
+		if err == nil && result.Ratio < 0.7 {
+			// Good compression achieved with AST/JSON - use it
+			return result.Content, result.ModelID, nil
+		}
+		// If compression didn't achieve good ratio or failed, fall back to LLM
+	}
+
+	// For text content or when AST compression isn't effective, use LLM
+	return distillWithLLM(pluginName, env, name, content, distillPrompt, siblingCtx)
+}
+
+// isStructuredContent returns true for content types that can be compressed structurally.
+func isStructuredContent(ct compression.ContentType) bool {
+	switch ct {
+	case compression.ContentTypeGo, compression.ContentTypePython, compression.ContentTypeJavaScript,
+		compression.ContentTypeTypeScript, compression.ContentTypeRust, compression.ContentTypeJava,
+		compression.ContentTypeJSON:
+		return true
+	}
+	return false
+}
+
+// distillWithLLM sends content through the LLM and returns distilled content and model ID.
+func distillWithLLM(pluginName string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
 	// Build content to distill
 	var builder strings.Builder
 
