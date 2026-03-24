@@ -204,12 +204,32 @@ fragments:
 
 ## Distillation Quality
 
+### Compression Strategy
+
+SCM's distillation uses an extractive approach designed to preserve actionable information while removing redundancy. The algorithm:
+
+**Preserves (never removes):**
+- Code syntax and exact patterns
+- Function/file/variable names (breadcrumbs for navigation)
+- Error handling rules and edge cases
+- Actionable instructions ("DO X", "NEVER do Y")
+- Technical constraints and requirements
+
+**Compresses aggressively:**
+- Verbose explanations of "why"
+- Redundant examples (keeps 1 best example per concept)
+- Motivational/philosophical content
+- Historical context unless directly actionable
+
+**Target:** 30-50% of original size while maintaining same structure.
+
 ### What Makes Good Distillation
 
 - Preserves **key concepts** and **essential rules**
 - Maintains **actionable guidance**
-- Keeps **critical examples**
+- Keeps **critical examples** (one per concept)
 - Removes **redundancy** and **verbose explanations**
+- Uses **bullet points and abbreviations** where clear
 
 ### Example
 

@@ -110,7 +110,7 @@ SCM: warning: assembled context is 24KB (recommended max: 16KB)
 SCM: warning: large context may reduce LLM effectiveness; consider using fewer/smaller fragments
 ```
 
-Research suggests context over 16KB can cause coherence degradation in LLM responses.
+[Research shows](https://arxiv.org/abs/2307.03172) that LLM performance degrades with larger context, particularly for middle-positioned content. See the [Distillation Guide](/guides/distillation#context-size-research) for details.
 
 ### Reducing Context Size
 
