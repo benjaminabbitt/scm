@@ -20,6 +20,7 @@ const sidebars: SidebarsConfig = {
         'concepts/prompts',
         'concepts/profiles',
         'concepts/remotes',
+        'concepts/architecture',
       ],
     },
     {
@@ -29,6 +30,12 @@ const sidebars: SidebarsConfig = {
         'guides/configuration',
         'guides/mcp-server',
         'guides/templating',
+        'guides/discovery',
+        'guides/hooks',
+        'guides/sharing',
+        'guides/distillation',
+        'guides/adhoc-context',
+        'guides/workflows',
       ],
     },
     {
@@ -36,9 +43,11 @@ const sidebars: SidebarsConfig = {
       label: 'Reference',
       items: [
         'reference/cli',
+        'reference/mcp-tools',
         'reference/environment',
       ],
     },
+    'troubleshooting',
     'contributing',
   ],
 };

@@ -1,0 +1,249 @@
+---
+sidebar_position: 7
+---
+
+# Distillation
+
+Distillation compresses verbose context into token-efficient versions while preserving essential information. This helps you stay within context limits and reduce costs.
+
+## Why Distill?
+
+### The Problem
+
+AI context windows have limits, and verbose documentation can quickly consume your budget:
+
+- A comprehensive coding standards document might be 5,000 tokens
+- You might want 10+ such documents in your context
+- That's 50,000+ tokens just for standards, leaving little room for code
+
+### The Solution
+
+Distillation uses AI to compress content while preserving meaning:
+
+- 5,000 token document → 800 token distilled version
+- Same essential information, 84% smaller
+- More room for actual code and conversation
+
+## How It Works
+
+1. **Original content** is analyzed by an AI model
+2. **Key information** is extracted and condensed
+3. **Distilled version** is stored alongside the original
+4. **Content hash** tracks when re-distillation is needed
+
+## Distilling Fragments
+
+### Single Fragment
+
+```bash
+# Distill a specific fragment
+scm fragment distill my-bundle#fragments/coding-standards
+
+# Force re-distillation even if hash matches
+scm fragment distill --force my-bundle#fragments/coding-standards
+```
+
+### All Fragments in a Bundle
+
+```bash
+# Distill all fragments that need it
+scm fragment distill my-bundle
+```
+
+### Checking Distillation Status
+
+```bash
+# Show fragment with distillation info
+scm fragment show my-bundle#fragments/coding-standards
+
+# Show distilled version
+scm fragment show --distilled my-bundle#fragments/coding-standards
+```
+
+## Using Distilled Content
+
+### Automatic Selection
+
+By default, SCM uses distilled content when available:
+
+```bash
+# Uses distilled versions automatically
+scm run -f my-bundle#fragments/coding-standards
+```
+
+### Prefer Original
+
+To use original content instead:
+
+```bash
+# In config.yaml
+defaults:
+  use_distilled: false
+```
+
+Or per-run:
+
+```bash
+scm run --no-distilled -f my-bundle#fragments/coding-standards
+```
+
+## Bundle Configuration
+
+### In Bundle YAML
+
+```yaml
+version: "1.0"
+fragments:
+  verbose-standards:
+    content: |
+      # Comprehensive Coding Standards
+
+      [5000 tokens of detailed documentation...]
+
+    # After distillation, these fields are added:
+    distilled: |
+      # Coding Standards (Distilled)
+
+      [800 tokens of condensed key points...]
+
+    content_hash: "sha256:abc123..."
+    distilled_by: "claude-3-opus"
+
+  keep-original:
+    no_distill: true  # Prevent distillation
+    content: |
+      # Critical Exact Wording
+
+      This content must be preserved exactly as written.
+```
+
+### Distillation Fields
+
+| Field | Description |
+|-------|-------------|
+| `content` | Original, full content |
+| `distilled` | AI-compressed version |
+| `content_hash` | SHA256 hash of content (for change detection) |
+| `distilled_by` | Model that created the distillation |
+| `no_distill` | If true, never distill this fragment |
+
+## When to Distill
+
+### Good Candidates
+
+- **Long reference documents** - Style guides, standards, best practices
+- **Comprehensive tutorials** - Can be condensed to key points
+- **API documentation** - Essential patterns and gotchas
+- **Historical context** - Background info that's useful but verbose
+
+### Poor Candidates
+
+- **Code examples** - Exact syntax matters
+- **Legal/compliance text** - Exact wording required
+- **Configuration templates** - Need precise formatting
+- **Short fragments** - Already concise, no benefit
+
+### Using no_distill
+
+```yaml
+fragments:
+  legal-disclaimer:
+    no_distill: true  # Must preserve exact wording
+    content: |
+      IMPORTANT: This software is provided "as is"...
+
+  code-template:
+    no_distill: true  # Exact code matters
+    content: |
+      ```go
+      func main() {
+          // Exact template structure
+      }
+      ```
+```
+
+## Distillation Quality
+
+### What Makes Good Distillation
+
+- Preserves **key concepts** and **essential rules**
+- Maintains **actionable guidance**
+- Keeps **critical examples**
+- Removes **redundancy** and **verbose explanations**
+
+### Example
+
+**Original (verbose):**
+```markdown
+# Error Handling in Go
+
+Error handling is one of the most important aspects of writing reliable
+Go programs. Unlike many other languages that use exceptions, Go takes
+a different approach by treating errors as values that are returned
+from functions. This design decision was intentional and reflects the
+Go philosophy of being explicit about error conditions.
+
+When a function can fail, it typically returns an error as its last
+return value. The caller is then responsible for checking this error
+and handling it appropriately. This might seem verbose at first, but
+it makes the error handling path explicit and visible in the code...
+
+[continues for 2000 more words]
+```
+
+**Distilled:**
+```markdown
+# Go Error Handling
+
+- Errors are values, not exceptions
+- Return error as last value: `func Foo() (Result, error)`
+- Always check: `if err != nil { return err }`
+- Wrap with context: `fmt.Errorf("operation failed: %w", err)`
+- Use sentinel errors sparingly: `var ErrNotFound = errors.New("not found")`
+- Handle at appropriate level, don't over-wrap
+```
+
+## Re-distillation
+
+### Automatic Detection
+
+SCM tracks content hashes. When content changes, distillation is flagged as stale:
+
+```bash
+# Check if distillation is current
+scm fragment show my-bundle#fragments/standards
+# Shows: "Distillation: stale (content changed)"
+```
+
+### Triggering Re-distillation
+
+```bash
+# Re-distill stale fragments
+scm fragment distill my-bundle
+
+# Force re-distill everything
+scm fragment distill --force my-bundle
+```
+
+## Cost Considerations
+
+Distillation uses AI API calls, which have costs:
+
+- Each fragment requires one API call to distill
+- Longer content = more tokens = higher cost
+- Re-distillation only happens when content changes
+
+### Minimizing Costs
+
+1. **Distill selectively** - Only distill fragments that benefit
+2. **Batch distillation** - Distill all at once, not repeatedly
+3. **Use content hashes** - Don't re-distill unchanged content
+4. **Review before distilling** - Ensure content is stable
+
+## Best Practices
+
+1. **Distill after finalizing** - Don't distill work-in-progress
+2. **Review distilled output** - Ensure key info is preserved
+3. **Keep originals** - Distilled versions can be regenerated
+4. **Document no_distill usage** - Explain why certain content shouldn't be distilled
+5. **Version control both** - Commit both original and distilled versions

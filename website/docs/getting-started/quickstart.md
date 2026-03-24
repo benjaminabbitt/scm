@@ -58,24 +58,58 @@ scm run -n
 scm run -p developer "implement error handling"
 ```
 
-## Common Workflows
+## Build Context On-the-Fly
+
+You don't need to create profile files - assemble context dynamically with flags:
 
 ```bash
-# Run with specific fragment
-scm run -f python-tools#fragments/typing "add type hints"
+# Combine multiple bundles for a task
+scm run -f go-development -f testing-patterns -f security \
+  "implement user authentication with tests"
 
-# Combine fragments ad-hoc
-scm run -f security#fragments/owasp -f python#fragments/errors "audit this code"
+# Mix bundles and tags
+scm run -f api-design -t best-practices "design the REST API"
 
-# Include all fragments with a tag
-scm run -t security "check for vulnerabilities"
+# Pull specific fragments from bundles
+scm run \
+  -f go-development#fragments/error-handling \
+  -f go-development#fragments/testing \
+  "write error handling with tests"
 
-# Switch AI backend
-scm run -l gemini "use Gemini instead of Claude"
+# Use remote bundles without installing
+scm run -f scm-main/security#fragments/owasp "security review"
+```
+
+### Preview Before Running
+
+```bash
+# See what context would be assembled
+scm run -f go-development -f security --dry-run
+
+# See the actual content
+scm run -f go-development -f security --dry-run --print
+```
+
+## Discover and Use Community Bundles
+
+```bash
+# Find SCM repositories
+scm remote discover golang
+
+# Add a remote
+scm remote add community alice/scm-golang
+
+# Use remote content directly
+scm run -f community/go-testing "help with tests"
+
+# Or pull for local use
+scm fragment install community/go-testing
 ```
 
 ## Next Steps
 
-- Learn about [Bundles](/concepts/bundles) and [Fragments](/concepts/fragments)
-- Set up [Profiles](/concepts/profiles) for quick context switching
-- Share content via [Remotes](/concepts/remotes)
+- [Ad-Hoc Context Assembly](/guides/adhoc-context) - Build faux profiles on the fly
+- [Bundles](/concepts/bundles) and [Fragments](/concepts/fragments) - Core concepts
+- [Profiles](/concepts/profiles) - Save common combinations
+- [Discovery](/guides/discovery) - Find community bundles
+- [Sharing](/guides/sharing) - Publish your own bundles
