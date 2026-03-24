@@ -89,8 +89,8 @@ func WriteContextFile(workDir string, fragments []*Fragment, opts ...ContextFile
 	//   with accuracy highest for early tokens. https://trychroma.com/research/context-rot
 	// - "Maximum Effective Context Window" (arXiv:2509.21361): Most models show severe
 	//   degradation by 1,000 tokens; all fall far short of advertised windows.
-	// - "Lost in the Middle": Information in the middle of context is processed less
-	//   reliably than start/end (primacy/recency bias).
+	// - "Lost in the Middle" (Liu et al., 2023, arXiv:2307.03172): U-shaped performance
+	//   curve; >30% degradation for middle-positioned content vs start/end.
 	//
 	// 16KB (~4,000 tokens) is a conservative threshold where degradation becomes
 	// noticeable across most models. Structure and relevance matter more than size.

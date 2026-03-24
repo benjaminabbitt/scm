@@ -16,7 +16,7 @@ Recent research reveals important patterns in how LLMs handle context:
 
 1. **Continuous Degradation**: Performance degrades as input grows, not at a specific threshold. The [Context Rot study](https://trychroma.com/research/context-rot) (Chroma, 2025) found accuracy is highest for early tokens and declines continuously.
 
-2. **Lost in the Middle**: LLMs process information at the start and end of context more reliably than the middle. This "primacy-recency bias" means structure matters as much as size.
+2. **Lost in the Middle**: The [Lost in the Middle](https://arxiv.org/abs/2307.03172) paper (Liu et al., 2023) found LLMs process information at the start and end of context more reliably than the middle—a U-shaped performance curve with >30% degradation for middle-positioned content.
 
 3. **Effective vs Advertised**: The [Maximum Effective Context Window](https://arxiv.org/abs/2509.21361) research found most models show severe degradation by ~1,000 tokens, falling 99% short of advertised windows.
 
@@ -58,9 +58,11 @@ AI context windows have limits, and verbose documentation can quickly consume yo
 
 Distillation uses AI to compress content while preserving meaning:
 
-- 5,000 token document → 800 token distilled version
-- Same essential information, 84% smaller
+- A verbose document can often be compressed 70-90% (e.g., 5,000 → 500-1,500 tokens)
+- Essential rules and patterns preserved, verbose explanations removed
 - More room for actual code and conversation
+
+*Actual compression varies by content type—structured guidelines compress well, code examples less so.*
 
 ## How It Works
 
