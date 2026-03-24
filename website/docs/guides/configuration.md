@@ -6,94 +6,193 @@ sidebar_position: 1
 
 SCM uses YAML configuration files stored in the `.scm/` directory.
 
-## Config Hierarchy
-
-SCM uses a single source (no merging):
-
-1. **Project**: `.scm/` at git repository root (if exists)
-2. **Home**: `~/.scm/` (fallback if no project .scm)
-
-When in a project with `.scm/`, only that project's config and bundles are used.
-
-## config.yaml
-
-The main configuration file at `.scm/config.yaml`:
-
-```yaml
-lm:
-  plugins:
-    claude-code:
-      default: true
-      args: ["--dangerously-skip-permissions"]
-    gemini:
-      args: ["--yolo"]
-
-defaults:
-  profile: developer
-  use_distilled: true
-```
-
-## LM Plugins
-
-SCM uses plugins to interface with language models:
-
-| Plugin | CLI | Description |
-|--------|-----|-------------|
-| `claude-code` | [Claude Code](https://claude.ai/code) | Anthropic's Claude CLI (default) |
-| `gemini` | [Gemini CLI](https://github.com/google/generative-ai-cli) | Google's Gemini CLI |
-| `codex` | [Codex CLI](https://github.com/openai/codex) | OpenAI's Codex CLI (**provisional**) |
-
-### Switch Plugins
-
-```bash
-# Use Gemini instead of Claude
-scm run -l gemini "help with this code"
-```
-
-## Claude Code Integration
-
-The `claude-code` plugin writes assembled context to files that Claude Code reads:
-
-1. Writes context to `.scm/context/[hash].md`
-2. Updates `CLAUDE.md` with a managed section containing the include reference
-
-The managed section is delimited by `<!-- SCM:BEGIN -->` and `<!-- SCM:END -->`. SCM only modifies content within these markers.
-
 ## Directory Structure
 
 ```
 .scm/
-├── config.yaml          # Main configuration
-├── bundles/             # Bundle YAML files
+├── config.yaml              # Main configuration
+├── bundles/                 # Bundle YAML files
 │   ├── my-bundle.yaml
-│   └── another.yaml
-├── profiles/            # Profile YAML files
-│   └── developer.yaml
-├── context/             # Generated context files
-│   └── [hash].md
-├── remotes.yaml         # Configured remote sources
-└── lock.yaml            # Dependency lock file
+│   └── remote-name/         # Pulled remote bundles
+│       └── bundle.yaml
+├── profiles/                # Profile YAML files
+│   ├── developer.yaml
+│   └── team/
+│       └── backend.yaml
+├── remotes.yaml             # Remote registry
+├── lock.yaml                # Dependency lockfile
+└── .auth/                   # Git authentication
+```
+
+## Config Hierarchy
+
+SCM uses a single source (no merging):
+
+1. **Project**: `.scm/` at git repository root
+2. **Home**: `~/.scm/` (fallback if no project .scm)
+
+## config.yaml Reference
+
+```yaml
+# Editor configuration
+editor:
+  command: "vim"                 # Editor command
+  args: ["-c", "set number"]     # Additional arguments
+  # Fallback: VISUAL env → EDITOR env → nano
+
+# Language model plugins
+llm:
+  plugin_paths: []               # Additional plugin directories
+  plugins:
+    claude-code:
+      model: "claude-opus-4-5"   # Default model
+      binary_path: "/path/to/bin"
+      args: []                   # Plugin-specific arguments
+      env:                       # Environment variables
+        CUSTOM_VAR: "value"
+    gemini:
+      model: "gemini-2.0-flash"
+
+# Default settings
+defaults:
+  llm_plugin: "claude-code"      # Default LLM plugin
+  profiles:                      # Default profiles to load
+    - scm-main/go-developer
+    - scm-main/code-reviewer
+  use_distilled: true            # Prefer distilled versions (default: true)
+
+# Sync configuration
+sync:
+  auto_sync: true                # Auto-sync on startup (default: true)
+  lock: true                     # Update lockfile after sync (default: true)
+  apply_hooks: true              # Apply hooks after sync (default: true)
+
+# Hooks configuration
+hooks:
+  unified:                       # Backend-agnostic hooks
+    pre_tool: []
+    post_tool: []
+    session_start: []
+    session_end: []
+    pre_shell: []
+    post_file_edit: []
+  plugins:                       # Backend-specific hooks
+    claude-code:
+      EventName: []
+
+# MCP Server configuration
+mcp:
+  auto_register_scm: true        # Auto-register SCM's MCP server
+  servers:                       # Unified MCP servers (all backends)
+    my-server:
+      command: "npx my-mcp"
+      args: ["--flag"]
+      env:
+        ENV_VAR: "value"
+  plugins:                       # Backend-specific servers
+    claude-code:
+      server-name:
+        command: "..."
+
+# Inline profiles (alternative to .scm/profiles/)
+profiles:
+  my-profile:
+    description: "Inline profile"
+    default: false
+    parents: []
+    tags: []
+    bundles: []
+    variables:
+      VARIABLE: "value"
+```
+
+## LM Plugins
+
+Available plugins:
+
+| Plugin | CLI | Description |
+|--------|-----|-------------|
+| `claude-code` | [Claude Code](https://claude.ai/code) | Anthropic's Claude (default) |
+| `gemini` | [Gemini CLI](https://github.com/google/generative-ai-cli) | Google's Gemini |
+| `codex` | [Codex CLI](https://github.com/openai/codex) | OpenAI (provisional) |
+
+### Plugin Configuration
+
+```yaml
+llm:
+  plugins:
+    claude-code:
+      model: "claude-opus-4-5"
+      args: ["--dangerously-skip-permissions"]
+      env:
+        ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
 ```
 
 ## Defaults
 
-Set default profile and behavior:
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `use_distilled` | `true` | Prefer distilled content |
+| `auto_sync` | `true` | Sync remotes on startup |
+| `llm_plugin` | `claude-code` | Default AI backend |
+| `auto_register_scm` | `true` | Register SCM MCP server |
+
+## Hooks
+
+Hook types available:
+
+| Hook | When |
+|------|------|
+| `pre_tool` | Before tool execution |
+| `post_tool` | After tool execution |
+| `session_start` | Session initialization |
+| `session_end` | Session cleanup |
+| `pre_shell` | Before shell execution |
+| `post_file_edit` | After file edit |
+
+Hook structure:
 
 ```yaml
-defaults:
-  profile: developer        # Default profile when none specified
-  use_distilled: true      # Use distilled content by default
+hooks:
+  unified:
+    session_start:
+      - matcher: ".*"           # Regex pattern
+        command: "echo hello"   # Shell command
+        type: "command"         # command, prompt, or agent
+        timeout: 30             # Seconds
+        async: false            # Run in background
 ```
 
-## Plugin Arguments
+## Claude Code Integration
 
-Pass arguments to LM CLI tools:
+The `claude-code` plugin:
+
+1. Writes context to `.scm/context/[hash].md`
+2. Updates `CLAUDE.md` with managed section
+
+The managed section is delimited by:
+```markdown
+<!-- SCM:BEGIN -->
+...generated content...
+<!-- SCM:END -->
+```
+
+SCM only modifies content within these markers.
+
+## Sync Configuration
 
 ```yaml
-lm:
-  plugins:
-    claude-code:
-      args: ["--dangerously-skip-permissions"]
-    gemini:
-      args: ["--yolo"]
+sync:
+  auto_sync: true      # Sync on MCP server startup
+  lock: true           # Update lock.yaml after sync
+  apply_hooks: true    # Apply hooks after sync
+```
+
+### Lockfile
+
+The `lock.yaml` records installed remote items for reproducible installations:
+
+```bash
+scm remote lock        # Generate lockfile
+scm remote sync        # Sync from lockfile
 ```

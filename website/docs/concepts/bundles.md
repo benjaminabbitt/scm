@@ -4,80 +4,128 @@ sidebar_position: 1
 
 # Bundles
 
-A **bundle** is a YAML file containing related fragments, prompts, and MCP server configurations.
+A **bundle** is a versioned YAML file containing related fragments, prompts, and MCP server configurations.
 
-## Bundle Format
+## Bundle Structure
 
 Bundles are stored in `.scm/bundles/` as YAML files:
 
 ```yaml
-version: "1.0.0"
-description: "Python development standards"
-tags:
-  - python
-  - development
+version: "1.0.0"                    # Bundle version (required)
+tags: [golang, development]         # Bundle-level tags
+author: "scm"                       # Author name
+description: "Bundle description"   # Description
+
+# Human-readable notes (NOT sent to AI)
+notes: |
+  Internal notes about this bundle...
+
+# Setup instructions (NOT sent to AI)
+installation: |
+  Run: npm install ...
 
 fragments:
-  coding-standards:
-    tags: [python, style]
+  fragment-name:
+    tags: [language, patterns]      # Additional tags (merged with bundle)
+    variables: [VAR1, VAR2]         # Template variables used
+    notes: "Human notes"            # NOT sent to AI
+    installation: "Setup guide"     # NOT sent to AI
     content: |
-      # Python Coding Standards
-      - Use ruff for formatting and linting
-      - Follow PEP 8 guidelines
+      # Fragment Content
+      Your markdown content here...
 
-  error-handling:
-    tags: [python, errors]
-    content: |
-      # Error Handling
-      - Use specific exception types
-      - Add context when re-raising
+    # Distillation fields (auto-generated)
+    content_hash: "sha256:..."      # Hash of original content
+    distilled: |                    # Token-efficient version
+      # Compressed content
+    distilled_by: "claude-code"     # Model that created it
+    no_distill: false               # Disable distillation
 
 prompts:
-  code-review:
-    description: "Review Python code for best practices"
+  prompt-name:
+    description: "Prompt description"
+    tags: [tool, generation]
+    variables: [VAR1]
+    notes: "Human notes"            # NOT sent to AI
+    installation: "Setup"           # NOT sent to AI
     content: |
-      Review this Python code for adherence to best practices...
+      # Prompt Content
+      Your prompt template here...
+
+    # Plugin-specific settings
+    plugins:
+      llm:
+        claude-code:
+          enabled: true             # null = enabled (opt-out)
+          description: "For /help"
+          argument_hint: "usage"
+          allowed_tools: [Read, Write]
+          model: "claude-opus-4-5"
 
 mcp:
-  tree-sitter:
-    command: "tree-sitter-mcp"
-    args: ["--stdio"]
+  server-name:
+    command: "npx my-mcp-server"    # Command to execute
+    args: ["--flag", "value"]       # Arguments
+    env:                            # Environment variables
+      API_KEY: "${API_KEY}"
+    notes: "Human notes"            # NOT sent to AI
+    installation: "Install guide"   # NOT sent to AI
 ```
+
+## Key Fields
+
+### Fragment Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `content` | string | Required. The actual content sent to AI |
+| `tags` | array | Additional tags (merged with bundle tags) |
+| `variables` | array | Mustache variables used in content |
+| `notes` | string | Human-readable notes (NOT sent to AI) |
+| `installation` | string | Setup instructions (NOT sent to AI) |
+| `no_distill` | bool | If true, skip distillation |
+| `content_hash` | string | SHA256 hash of content |
+| `distilled` | string | Token-efficient version |
+| `distilled_by` | string | Model that created distillation |
+
+### Prompt Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `content` | string | Required. The prompt template |
+| `description` | string | Human-readable description |
+| `tags` | array | Tags for filtering |
+| `variables` | array | Mustache variables used |
+| `plugins` | object | Plugin-specific settings |
+
+### MCP Server Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `command` | string | Required. Command to execute |
+| `args` | array | Command arguments |
+| `env` | map | Environment variables |
+| `notes` | string | Human-readable notes (NOT sent to AI) |
+| `installation` | string | Setup instructions (NOT sent to AI) |
 
 ## Managing Bundles
 
 ```bash
-scm bundle list                     # List all bundles
-scm bundle show <name>              # Show bundle contents
-scm bundle view <name[#path]>       # View bundle or item content
-scm bundle create <name>            # Create a new bundle
-scm bundle edit <name>              # Edit bundle metadata
-scm bundle export <name> <dir>      # Export bundle to directory
-scm bundle import <path>            # Import bundle from file
-```
-
-## Editing Bundle Content
-
-```bash
-# Edit fragment content
-scm bundle fragment edit my-bundle coding-standards
-
-# Edit prompt content
-scm bundle prompt edit my-bundle review
-
-# Edit MCP config
-scm bundle mcp edit my-bundle tree-sitter
-
-# Add/remove tags
-scm bundle edit my-bundle --add-tag python
+scm fragment list                   # List all fragments
+scm fragment list --bundle my-bundle
+scm fragment show my-bundle#fragments/name
+scm fragment create my-bundle name  # Create fragment
+scm fragment edit my-bundle#fragments/name
+scm fragment delete my-bundle#fragments/name
 ```
 
 ## Distillation
 
-Bundles can be **distilled** to create compressed versions optimized for token usage:
+Distillation creates compressed versions optimized for token usage:
 
 ```bash
-scm bundle distill .scm/bundles/*.yaml
+scm fragment distill my-bundle#fragments/name
+scm fragment distill my-bundle#fragments/name --force  # Re-distill
 ```
 
 Distilled fields are added automatically:
@@ -86,7 +134,7 @@ Distilled fields are added automatically:
 fragments:
   my-fragment:
     content: "Original detailed content..."
-    content_hash: "sha256:..."
+    content_hash: "sha256:abc123..."
     distilled: "Compressed version..."
     distilled_by: "claude-opus-4-5-20251101"
 ```
@@ -104,11 +152,23 @@ fragments:
 
 ## Content References
 
-Reference bundle content using this syntax:
+Reference bundle content using hash syntax:
 
 | Syntax | Description |
 |--------|-------------|
-| `bundle-name` | Entire bundle (all fragments) |
-| `bundle#fragments/name` | Specific fragment from bundle |
-| `bundle#prompts/name` | Specific prompt from bundle |
-| `remote/bundle#fragments/name` | Fragment from remote bundle |
+| `bundle-name` | Entire bundle (all fragments, prompts, MCP) |
+| `bundle#fragments/name` | Specific fragment |
+| `bundle#prompts/name` | Specific prompt |
+| `bundle#mcp` | All MCP servers |
+| `bundle#mcp/name` | Specific MCP server |
+| `remote/bundle` | Bundle from remote |
+| `remote/bundle#fragments/x` | Fragment from remote bundle |
+
+## Notes vs Content
+
+Fields marked "NOT sent to AI" are for human documentation only:
+
+- `notes` - Internal documentation, caveats, rationale
+- `installation` - Setup steps, prerequisites, dependencies
+
+These help maintainers understand the bundle without polluting AI context.

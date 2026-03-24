@@ -6,21 +6,52 @@ sidebar_position: 4
 
 A **profile** is a named configuration that references bundles, tags, and variables. Profiles enable quick context switching.
 
-## Profile Format
+## Profile Structure
 
 Profiles are stored in `.scm/profiles/` as YAML files:
 
 ```yaml
-description: "Standard development context"
-parents:
-  - scm-main/python-developer  # Inherit from remote profile
-bundles:
-  - my-custom-bundle           # Local bundle reference
-tags:
-  - production
-variables:
-  project_name: "my-project"
+description: "Profile description"
+default: false                      # Mark as default profile
+
+parents:                            # Inherit from other profiles
+  - base-profile
+  - scm-main/python-developer
+
+tags:                              # Include fragments with these tags
+  - golang
+  - testing
+
+bundles:                           # Bundle references
+  - go-development                 # Local bundle
+  - scm-main/security             # Remote bundle
+  - my-bundle#fragments/specific  # Specific fragment
+  - my-bundle#prompts/review      # Specific prompt
+
+variables:                         # Template variables (Mustache)
+  DATABASE_URL: "postgresql://..."
+  PROJECT_NAME: "my-app"
+  DEBUG: "true"
 ```
+
+## Content Reference Syntax
+
+| Format | Description |
+|--------|-------------|
+| `bundle-name` | Entire bundle (all content) |
+| `bundle#fragments/name` | Specific fragment |
+| `bundle#prompts/name` | Specific prompt |
+| `bundle#mcp` | All MCP servers from bundle |
+| `bundle#mcp/name` | Specific MCP server |
+| `remote/bundle` | Bundle from remote |
+| `remote/bundle#fragments/x` | Fragment from remote |
+
+### Extended Formats
+
+| Format | Description |
+|--------|-------------|
+| `https://github.com/user/repo@v1/bundles/name` | Full URL with version |
+| `git@github.com:user/repo#fragments/name` | Git SSH format |
 
 ## Using Profiles
 
@@ -29,39 +60,35 @@ variables:
 scm run -p developer "implement error handling"
 
 # Preview profile context
-scm run -p developer -n
+scm run -p developer --dry-run
 
 # Use remote profile directly
-scm run -p scm-main/python-developer "help with Python code"
+scm run -p scm-main/python-developer "help with Python"
+
+# Combine profile with extra fragments
+scm run -p developer -f security#fragments/owasp "audit code"
 ```
 
 ## Managing Profiles
 
 ```bash
 scm profile list                    # List all profiles
-scm profile show <name>             # Show profile details
-scm profile add <name>              # Create a new profile
-scm profile update <name>           # Update profile
-scm profile remove <name>           # Delete a profile
-scm profile export <name> <dir>     # Export profile
-scm profile import <path>           # Import profile
+scm profile show developer          # Show profile details
+scm profile create my-profile       # Create new profile
+scm profile edit developer          # Edit in configured editor
+scm profile delete old-profile      # Remove profile
+scm profile install scm-main/dev    # Install from remote
 ```
 
-### Create a Profile
+### Create with Options
 
 ```bash
-scm profile add developer -b python-tools -d "Standard dev context"
-```
-
-### Update a Profile
-
-```bash
-# Add bundles or parents
-scm profile update developer --add-bundle security-tools
-scm profile update developer --add-parent scm-main/base
-
-# Remove bundles or parents
-scm profile update developer --remove-bundle old-bundle
+scm profile create backend \
+  --parent base \
+  --parent scm-main/security \
+  -b go-development \
+  -b testing \
+  -d "Backend developer profile"
 ```
 
 ## Profile Inheritance
@@ -69,25 +96,94 @@ scm profile update developer --remove-bundle old-bundle
 Profiles can inherit from other profiles using `parents`:
 
 ```yaml
-description: "Senior developer context"
-parents:
-  - developer              # Inherit from local profile
-  - scm-main/security     # Inherit from remote profile
+# base.yaml
+description: "Base configuration"
 bundles:
-  - advanced-patterns     # Add more bundles
+  - core-standards
+variables:
+  LOG_LEVEL: "info"
+
+# developer.yaml
+description: "Developer profile"
+parents:
+  - base                    # Inherit from local
+  - scm-main/security      # Inherit from remote
+bundles:
+  - dev-tools              # Add more bundles
+variables:
+  LOG_LEVEL: "debug"       # Override parent value
+  DEV_MODE: "true"         # Add new variable
 ```
 
-Inheritance is resolved in order, with later profiles overriding earlier ones.
+### Inheritance Rules
+
+- **Order matters**: Later parents override earlier ones
+- **Child overrides all**: Child values override all parent values
+- **Bundles merge**: No duplicates
+- **Tags merge**: Combined from all parents
+- **Variables merge**: Child overrides parent values
+- **Circular detection**: SCM errors on circular references
+
+## Default Profiles
+
+Mark a profile as default to load automatically:
+
+```yaml
+# .scm/profiles/developer.yaml
+description: "Default dev profile"
+default: true
+bundles:
+  - standards
+```
+
+Or in config.yaml:
+
+```yaml
+defaults:
+  profiles:
+    - developer
+    - scm-main/base
+```
 
 ## Variables
 
-Profiles can define variables used in fragment templates:
+Profile variables are used in Mustache templates:
 
 ```yaml
+# Profile
 variables:
-  project_name: "my-app"
-  language: "Python"
-  team: "backend"
+  PROJECT_NAME: "my-app"
+  LANGUAGE: "Go"
+  TEAM: "backend"
 ```
 
-See the [Templating Guide](/guides/templating) for using variables in fragments.
+```yaml
+# Fragment content using variables
+content: |
+  # {{PROJECT_NAME}} Development
+
+  This {{LANGUAGE}} project is maintained by {{TEAM}}.
+```
+
+See [Templating](/guides/templating) for full variable documentation.
+
+## Inline Profiles
+
+Profiles can be defined directly in config.yaml:
+
+```yaml
+# .scm/config.yaml
+profiles:
+  quick-review:
+    description: "Quick code review"
+    bundles:
+      - code-review
+    variables:
+      REVIEW_DEPTH: "surface"
+```
+
+Use like any other profile:
+
+```bash
+scm run -p quick-review "review this PR"
+```

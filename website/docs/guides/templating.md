@@ -4,33 +4,24 @@ sidebar_position: 3
 
 # Templating
 
-Fragments support [Mustache](https://mustache.github.io/) templating for dynamic content.
+Fragments and prompts support [Mustache](https://mustache.github.io/) templating for dynamic content.
 
-## Basic Usage
+## Basic Syntax
 
-Use double braces for variables:
+Use double braces for variable substitution:
 
 ```yaml
-# In bundle fragment:
 fragments:
   project-info:
     content: |
-      # {{project_name}} Guidelines
-      This project uses {{language}}.
-      Team: {{team}}
-```
-
-```yaml
-# In profile:
-variables:
-  project_name: "my-app"
-  language: "Python"
-  team: "backend"
+      # {{PROJECT_NAME}} Guidelines
+      This project uses {{LANGUAGE}}.
+      Team: {{TEAM}}
 ```
 
 ## Built-in Variables
 
-These variables are available in all templates:
+These variables are always available:
 
 | Variable | Description |
 |----------|-------------|
@@ -45,78 +36,185 @@ fragments:
       Config location: {{SCM_DIR}}
 ```
 
-## Variable Sources
+## Defining Variables
 
-Variables can come from:
-
-1. **Profile variables** - Defined in profile YAML
-2. **Parent profiles** - Inherited from parent profiles
-3. **Built-in variables** - SCM_ROOT, SCM_DIR
-
-### Profile Variables
+### In Profiles
 
 ```yaml
 # .scm/profiles/developer.yaml
-description: "Development profile"
 variables:
-  project_name: "my-project"
-  language: "Go"
-  log_level: "debug"
+  PROJECT_NAME: "my-app"
+  LANGUAGE: "Go"
+  LOG_LEVEL: "debug"
+  TEAM: "backend"
 ```
 
-### Variable Inheritance
-
-When using parent profiles, variables are inherited:
+### In Config
 
 ```yaml
-# Parent profile
-variables:
-  language: "Python"
-  framework: "FastAPI"
+# .scm/config.yaml
+profiles:
+  quick:
+    variables:
+      MODE: "fast"
+```
 
-# Child profile
-parents:
-  - base-python
+## Variable Inheritance
+
+When using parent profiles, variables inherit and can be overridden:
+
+```yaml
+# base.yaml
 variables:
-  project_name: "my-app"  # Adds to parent variables
-  framework: "Django"     # Overrides parent value
+  LANGUAGE: "Python"
+  FRAMEWORK: "FastAPI"
+  LOG_LEVEL: "info"
+
+# child.yaml
+parents:
+  - base
+variables:
+  PROJECT_NAME: "my-app"    # New variable
+  FRAMEWORK: "Django"       # Override parent
+  # LANGUAGE and LOG_LEVEL inherited from base
 ```
 
 ## Mustache Features
 
-### Conditionals
+### Simple Variables
 
-```yaml
-content: |
-  {{#use_typescript}}
-  - Use TypeScript for all new code
-  {{/use_typescript}}
-  {{^use_typescript}}
-  - JavaScript is acceptable
-  {{/use_typescript}}
+```mustache
+Hello, {{name}}!
 ```
 
-### Lists
+### Sections (Conditionals/Lists)
 
 ```yaml
 variables:
-  reviewers:
+  FEATURES:
+    - auth
+    - logging
+    - metrics
+  DEBUG: true
+```
+
+```mustache
+{{#DEBUG}}
+Debug mode is enabled.
+{{/DEBUG}}
+
+Features:
+{{#FEATURES}}
+- {{.}}
+{{/FEATURES}}
+```
+
+### Inverted Sections (Falsy Check)
+
+```mustache
+{{^PRODUCTION}}
+This is not production - be careful!
+{{/PRODUCTION}}
+```
+
+### Raw Output (Unescaped)
+
+```mustache
+{{{HTML_CONTENT}}}
+```
+
+### Comments
+
+```mustache
+{{! This comment won't appear in output }}
+```
+
+## Declaring Used Variables
+
+Document which variables a fragment uses:
+
+```yaml
+fragments:
+  database-config:
+    variables: [DATABASE_URL, DB_POOL_SIZE]
+    content: |
+      Connect to: {{DATABASE_URL}}
+      Pool size: {{DB_POOL_SIZE}}
+```
+
+This helps users know which variables to define in their profiles.
+
+## Error Handling
+
+- **Undefined variables**: Logged as warnings, rendered as empty
+- **Render failures**: Original content returned unchanged
+- **All variables are strings**: Converted to `map[string]interface{}`
+
+## Examples
+
+### Project Context
+
+```yaml
+# Profile
+variables:
+  PROJECT: "api-server"
+  LANGUAGE: "Go"
+  VERSION: "1.0"
+
+# Fragment
+content: |
+  # {{PROJECT}} ({{VERSION}})
+
+  This {{LANGUAGE}} project follows these standards:
+  - Use gofmt for formatting
+  - Write tests for all public functions
+```
+
+### Conditional Content
+
+```yaml
+# Profile
+variables:
+  USE_DOCKER: true
+  CI_PLATFORM: "github"
+
+# Fragment
+content: |
+  ## Deployment
+
+  {{#USE_DOCKER}}
+  Build with: docker build -t app .
+  {{/USE_DOCKER}}
+
+  {{#CI_PLATFORM}}
+  CI runs on: {{CI_PLATFORM}}
+  {{/CI_PLATFORM}}
+```
+
+### List Iteration
+
+```yaml
+# Profile
+variables:
+  REVIEWERS:
     - Alice
     - Bob
     - Charlie
-```
 
-```yaml
+# Fragment
 content: |
-  Code reviewers:
-  {{#reviewers}}
+  ## Code Review
+
+  Reviewers:
+  {{#REVIEWERS}}
   - {{.}}
-  {{/reviewers}}
+  {{/REVIEWERS}}
 ```
 
 ## Best Practices
 
-1. **Use descriptive variable names** - `project_name` not `pn`
-2. **Document required variables** - In fragment descriptions
-3. **Provide defaults in profiles** - Avoid undefined variable errors
+1. **Use descriptive names** - `PROJECT_NAME` not `pn`
+2. **Document required variables** - Use `variables:` field in fragments
+3. **Provide defaults in profiles** - Avoid undefined variable warnings
 4. **Keep templates simple** - Complex logic belongs in code
+5. **Use sections for optionals** - `{{#VAR}}...{{/VAR}}` handles missing gracefully
