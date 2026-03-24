@@ -83,11 +83,21 @@ func WriteContextFile(workDir string, fragments []*Fragment, opts ...ContextFile
 	content := strings.Join(parts, "\n\n---\n\n")
 
 	// Warn if context exceeds recommended size threshold.
-	// Research suggests >16KB causes coherence degradation in LLM context.
-	const maxRecommendedSize = 16 * 1024 // 16KB
+	//
+	// Research on LLM context effectiveness:
+	// - "Context Rot" (Chroma, 2025): Performance degrades continuously as input grows,
+	//   with accuracy highest for early tokens. https://trychroma.com/research/context-rot
+	// - "Maximum Effective Context Window" (arXiv:2509.21361): Most models show severe
+	//   degradation by 1,000 tokens; all fall far short of advertised windows.
+	// - "Lost in the Middle": Information in the middle of context is processed less
+	//   reliably than start/end (primacy/recency bias).
+	//
+	// 16KB (~4,000 tokens) is a conservative threshold where degradation becomes
+	// noticeable across most models. Structure and relevance matter more than size.
+	const maxRecommendedSize = 16 * 1024 // 16KB (~4,000 tokens)
 	if len(content) > maxRecommendedSize {
 		fmt.Fprintf(os.Stderr, "SCM: warning: assembled context is %dKB (recommended max: 16KB)\n", len(content)/1024)
-		fmt.Fprintf(os.Stderr, "SCM: warning: large context may reduce LLM effectiveness; consider using fewer/smaller fragments\n")
+		fmt.Fprintf(os.Stderr, "SCM: warning: large context may reduce LLM effectiveness; consider distillation or fewer fragments\n")
 	}
 
 	// Generate hash-based filename from content

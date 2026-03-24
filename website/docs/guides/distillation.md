@@ -6,6 +6,44 @@ sidebar_position: 7
 
 Distillation compresses verbose context into token-efficient versions while preserving essential information. This helps you stay within context limits and reduce costs.
 
+## Context Size Research
+
+Understanding how LLMs process context helps optimize your setup.
+
+### Key Findings
+
+Recent research reveals important patterns in how LLMs handle context:
+
+1. **Continuous Degradation**: Performance degrades as input grows, not at a specific threshold. The [Context Rot study](https://trychroma.com/research/context-rot) (Chroma, 2025) found accuracy is highest for early tokens and declines continuously.
+
+2. **Lost in the Middle**: LLMs process information at the start and end of context more reliably than the middle. This "primacy-recency bias" means structure matters as much as size.
+
+3. **Effective vs Advertised**: The [Maximum Effective Context Window](https://arxiv.org/abs/2509.21361) research found most models show severe degradation by ~1,000 tokens, falling 99% short of advertised windows.
+
+### SCM's 16KB Warning
+
+SCM warns when assembled context exceeds 16KB (~4,000 tokens):
+
+```
+SCM: warning: assembled context is 24KB (recommended max: 16KB)
+SCM: warning: large context may reduce LLM effectiveness; consider distillation or fewer fragments
+```
+
+This threshold is conservative - degradation varies by model and task. The warning encourages you to:
+- Use distillation to compress verbose content
+- Prioritize most relevant fragments
+- Structure context with key information at start/end
+
+### Optimization Strategies
+
+| Strategy | Description |
+|----------|-------------|
+| Distill verbose content | Compress 5,000 tokens → 800 tokens |
+| Front-load key info | Put critical instructions at the start |
+| Summarize at end | Reiterate key points at context end |
+| Use tags selectively | Include only relevant fragments |
+| Profile per task | Different tasks need different context |
+
 ## Why Distill?
 
 ### The Problem
