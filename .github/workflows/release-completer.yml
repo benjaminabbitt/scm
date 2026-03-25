@@ -18,7 +18,8 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     container:
-      image: golang:1.26
+      # goreleaser-cross includes cross-compilation toolchains for CGO
+      image: ghcr.io/goreleaser/goreleaser-cross:v1.24
 
     steps:
       - name: Checkout code
@@ -43,8 +44,6 @@ jobs:
           # Install buf
           curl -sSL https://github.com/bufbuild/buf/releases/latest/download/buf-Linux-x86_64 -o /usr/local/bin/buf
           chmod +x /usr/local/bin/buf
-          # Install GoReleaser
-          curl -sSL https://github.com/goreleaser/goreleaser/releases/latest/download/goreleaser_Linux_x86_64.tar.gz | tar xz -C /usr/local/bin goreleaser
 
       - name: Generate protobuf code
         run: buf generate
