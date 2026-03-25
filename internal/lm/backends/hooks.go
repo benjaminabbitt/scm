@@ -224,6 +224,8 @@ func (w *ClaudeCodeHookWriter) SettingsPath(projectDir string) string {
 }
 
 // loadSettings loads existing settings.json or returns empty settings.
+// This function is fault-tolerant: on parse errors, it logs a warning and
+// returns empty settings rather than failing, allowing SCM to continue.
 func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, error) {
 	settings := &claudeCodeSettings{
 		Hooks: make(map[string][]claudeCodeHookMatcher),
@@ -242,13 +244,19 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 	// First unmarshal to get all fields
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("failed to parse settings.json: %w", err)
+		// Claude Code's settings.json format is undocumented and may change.
+		// If we can't parse it, warn but continue with empty settings.
+		// This ensures SCM doesn't block startup due to schema changes.
+		w.warn("failed to parse settings.json (schema may have changed): %v - SCM hooks will be added but existing settings may not be preserved", err)
+		return settings, nil
 	}
 
 	// Extract hooks separately
 	if hooksRaw, ok := raw["hooks"]; ok {
 		if err := json.Unmarshal(hooksRaw, &settings.Hooks); err != nil {
-			return nil, fmt.Errorf("failed to parse hooks: %w", err)
+			// Hooks format may have changed - warn but continue
+			w.warn("failed to parse hooks in settings.json: %v - existing hooks may not be preserved", err)
+			// Don't fail - just skip preserving existing hooks
 		}
 		delete(raw, "hooks")
 	}
@@ -262,8 +270,17 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 	return settings, nil
 }
 
+// warn outputs a warning message to stderr.
+func (w *ClaudeCodeHookWriter) warn(format string, args ...interface{}) {
+	fmt.Fprintf(os.Stderr, "SCM: warning: "+format+"\n", args...)
+}
+
 // saveSettings writes settings back to settings.json.
 // Note: MCP servers are written separately to .mcp.json
+//
+// This function implements two safety measures for Claude schema resilience:
+// 1. Backup: Creates a .bak file before modifying (preserves original on schema changes)
+// 2. Atomic write: Writes to temp file first, then renames (prevents corruption)
 func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSettings) error {
 	// Build output map starting with preserved fields
 	output := make(map[string]interface{})
@@ -286,10 +303,40 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 	}
 
 	fs := w.getFS()
-	return afero.WriteFile(fs, path, data, 0644)
+
+	// Create backup of existing file before modifying
+	// This allows recovery if SCM corrupts the file due to schema changes
+	if exists, _ := afero.Exists(fs, path); exists {
+		backupPath := path + ".scm.bak"
+		if origData, err := afero.ReadFile(fs, path); err == nil {
+			// Ignore backup errors - this is best-effort
+			_ = afero.WriteFile(fs, backupPath, origData, 0644)
+		}
+	}
+
+	// Atomic write: write to temp file first, then rename
+	// This prevents corruption if the write is interrupted
+	tmpPath := path + ".scm.tmp"
+	if err := afero.WriteFile(fs, tmpPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write settings: %w", err)
+	}
+
+	// Rename temp file to final path (atomic on most filesystems)
+	if err := fs.Rename(tmpPath, path); err != nil {
+		// If rename fails (e.g., cross-device), fall back to direct write
+		if writeErr := afero.WriteFile(fs, path, data, 0644); writeErr != nil {
+			return fmt.Errorf("failed to write settings: %w", writeErr)
+		}
+		// Clean up temp file
+		_ = fs.Remove(tmpPath)
+	}
+
+	return nil
 }
 
 // loadMCPConfig loads existing .mcp.json or returns empty config.
+// This function is fault-tolerant: on parse errors, it logs a warning and
+// returns empty config rather than failing, allowing SCM to continue.
 func (w *ClaudeCodeHookWriter) loadMCPConfig(path string) (*claudeCodeMCPConfig, error) {
 	mcpConfig := &claudeCodeMCPConfig{
 		MCPServers: make(map[string]claudeCodeMCPServer),
@@ -305,7 +352,9 @@ func (w *ClaudeCodeHookWriter) loadMCPConfig(path string) (*claudeCodeMCPConfig,
 	}
 
 	if err := json.Unmarshal(data, mcpConfig); err != nil {
-		return nil, fmt.Errorf("failed to parse .mcp.json: %w", err)
+		// MCP config format may have changed - warn but continue
+		w.warn("failed to parse .mcp.json: %v - existing MCP servers may not be preserved", err)
+		return mcpConfig, nil
 	}
 
 	if mcpConfig.MCPServers == nil {
@@ -316,6 +365,7 @@ func (w *ClaudeCodeHookWriter) loadMCPConfig(path string) (*claudeCodeMCPConfig,
 }
 
 // saveMCPConfig writes MCP config to .mcp.json.
+// Uses backup and atomic write for safety (see saveSettings).
 func (w *ClaudeCodeHookWriter) saveMCPConfig(path string, mcpConfig *claudeCodeMCPConfig) error {
 	data, err := json.MarshalIndent(mcpConfig, "", "  ")
 	if err != nil {
@@ -323,7 +373,29 @@ func (w *ClaudeCodeHookWriter) saveMCPConfig(path string, mcpConfig *claudeCodeM
 	}
 
 	fs := w.getFS()
-	return afero.WriteFile(fs, path, data, 0644)
+
+	// Create backup of existing file before modifying
+	if exists, _ := afero.Exists(fs, path); exists {
+		backupPath := path + ".scm.bak"
+		if origData, err := afero.ReadFile(fs, path); err == nil {
+			_ = afero.WriteFile(fs, backupPath, origData, 0644)
+		}
+	}
+
+	// Atomic write: write to temp file first, then rename
+	tmpPath := path + ".scm.tmp"
+	if err := afero.WriteFile(fs, tmpPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write .mcp.json: %w", err)
+	}
+
+	if err := fs.Rename(tmpPath, path); err != nil {
+		if writeErr := afero.WriteFile(fs, path, data, 0644); writeErr != nil {
+			return fmt.Errorf("failed to write .mcp.json: %w", writeErr)
+		}
+		_ = fs.Remove(tmpPath)
+	}
+
+	return nil
 }
 
 // writeMCPConfig writes MCP servers to .mcp.json.

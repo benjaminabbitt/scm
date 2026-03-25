@@ -187,16 +187,80 @@ func TestCreateFragment_InvalidExistingBundle(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to parse existing local bundle")
 }
 
-func TestDeleteFragment_ReturnsError(t *testing.T) {
+func TestDeleteFragment_Success(t *testing.T) {
+	fs := afero.NewMemMapFs()
 	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
 
+	// Create a bundle with a fragment first
+	bundleContent := `version: "1.0"
+fragments:
+  test-frag:
+    content: Test content
+  other-frag:
+    content: Other content
+`
+	require.NoError(t, fs.MkdirAll("/project/.scm/bundles", 0755))
+	require.NoError(t, afero.WriteFile(fs, "/project/.scm/bundles/local.yaml", []byte(bundleContent), 0644))
+
+	// Delete the fragment
+	result, err := DeleteFragment(context.Background(), cfg, DeleteFragmentRequest{
+		Name: "test-frag",
+		FS:   fs,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "deleted", result.Status)
+	assert.Equal(t, "test-frag", result.Fragment)
+
+	// Verify fragment is removed but other-frag remains
+	data, err := afero.ReadFile(fs, "/project/.scm/bundles/local.yaml")
+	require.NoError(t, err)
+
+	var bundle map[string]interface{}
+	require.NoError(t, yaml.Unmarshal(data, &bundle))
+
+	fragments := bundle["fragments"].(map[string]interface{})
+	assert.NotContains(t, fragments, "test-frag", "deleted fragment should be removed")
+	assert.Contains(t, fragments, "other-frag", "other fragment should be preserved")
+}
+
+func TestDeleteFragment_NotFound(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+
+	// Create a bundle without the fragment we want to delete
+	bundleContent := `version: "1.0"
+fragments:
+  existing-frag:
+    content: Existing content
+`
+	require.NoError(t, fs.MkdirAll("/project/.scm/bundles", 0755))
+	require.NoError(t, afero.WriteFile(fs, "/project/.scm/bundles/local.yaml", []byte(bundleContent), 0644))
+
 	_, err := DeleteFragment(context.Background(), cfg, DeleteFragmentRequest{
-		Name: "any-fragment",
+		Name: "nonexistent-frag",
+		FS:   fs,
 	})
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "cannot be deleted")
-	assert.Contains(t, err.Error(), "bundles")
+	assert.Contains(t, err.Error(), "not found")
+}
+
+func TestDeleteFragment_NoBundleFile(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+
+	// Don't create the bundle file
+	require.NoError(t, fs.MkdirAll("/project/.scm/bundles", 0755))
+
+	_, err := DeleteFragment(context.Background(), cfg, DeleteFragmentRequest{
+		Name: "any-fragment",
+		FS:   fs,
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+	assert.Contains(t, err.Error(), "local bundle does not exist")
 }
 
 func TestDeleteFragment_ValidationError(t *testing.T) {

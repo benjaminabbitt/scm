@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -229,23 +230,77 @@ func CreateFragment(ctx context.Context, cfg *config.Config, req CreateFragmentR
 // DeleteFragmentRequest contains parameters for deleting a fragment.
 type DeleteFragmentRequest struct {
 	Name string `json:"name"`
+
+	// FS allows injecting a custom filesystem (for testing).
+	FS afero.Fs `json:"-"`
 }
 
 // DeleteFragmentResult contains the result of deleting a fragment.
 type DeleteFragmentResult struct {
-	Status string `json:"status"`
-	Error  string `json:"error,omitempty"`
+	Status   string `json:"status"`
+	Fragment string `json:"fragment,omitempty"`
+	Path     string `json:"path,omitempty"`
 }
 
-// DeleteFragment attempts to delete a fragment.
-// Currently returns an error as fragments are part of bundles.
+// DeleteFragment deletes a fragment from the local.yaml bundle.
+// Only fragments in the local bundle can be deleted; fragments from other
+// bundles (including remote bundles) should be managed at the bundle level.
 func DeleteFragment(ctx context.Context, cfg *config.Config, req DeleteFragmentRequest) (*DeleteFragmentResult, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
 
-	// Fragments are now part of bundles and cannot be deleted individually
-	return nil, fmt.Errorf("individual fragments cannot be deleted; they are part of bundles. Use bundle management instead")
+	// Use provided filesystem or default to OS
+	fs := req.FS
+	if fs == nil {
+		fs = afero.NewOsFs()
+	}
+
+	// Use config's SCM path
+	baseDir := getBaseDir(cfg)
+	bundleDir := filepath.Join(baseDir, config.BundlesDir)
+	bundlePath := filepath.Join(bundleDir, "local.yaml")
+
+	// Load existing bundle
+	var bundle bundles.Bundle
+	data, err := afero.ReadFile(fs, bundlePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("fragment %q not found: local bundle does not exist", req.Name)
+		}
+		return nil, fmt.Errorf("failed to read local bundle: %w", err)
+	}
+
+	if err := yaml.Unmarshal(data, &bundle); err != nil {
+		return nil, fmt.Errorf("failed to parse local bundle: %w", err)
+	}
+
+	// Check if fragment exists
+	if bundle.Fragments == nil {
+		return nil, fmt.Errorf("fragment %q not found in local bundle", req.Name)
+	}
+	if _, exists := bundle.Fragments[req.Name]; !exists {
+		return nil, fmt.Errorf("fragment %q not found in local bundle", req.Name)
+	}
+
+	// Delete the fragment
+	delete(bundle.Fragments, req.Name)
+
+	// Save the bundle
+	yamlContent, err := yaml.Marshal(bundle)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal bundle: %w", err)
+	}
+
+	if err := afero.WriteFile(fs, bundlePath, yamlContent, 0644); err != nil {
+		return nil, fmt.Errorf("failed to write bundle: %w", err)
+	}
+
+	return &DeleteFragmentResult{
+		Status:   "deleted",
+		Fragment: req.Name,
+		Path:     bundlePath,
+	}, nil
 }
 
 // containsTag checks if any tag contains the query string.

@@ -615,6 +615,130 @@ func TestLoader_ResolveProfile_ParentNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to resolve parent")
 }
 
+// TestLoader_ResolveProfile_DiamondInheritance verifies diamond inheritance works correctly.
+//
+// Diamond inheritance occurs when:
+//
+//	   A
+//	  / \
+//	 B   C
+//	  \ /
+//	   D
+//
+// Both B and C inherit from D. Without proper visited tracking, the resolver
+// would incorrectly detect a circular reference when resolving D through C
+// after already resolving D through B.
+//
+// This tests that the resolver clones the visited set for each parent branch,
+// allowing shared ancestors to be resolved independently.
+func TestLoader_ResolveProfile_DiamondInheritance(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// D is the shared ancestor
+	profileD := `description: Base profile D
+bundles:
+  - d-bundle
+tags:
+  - d-tag
+variables:
+  from_d: d-value
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "d.yaml"), []byte(profileD), 0644))
+
+	// B inherits from D
+	profileB := `description: Profile B
+parents:
+  - d
+bundles:
+  - b-bundle
+tags:
+  - b-tag
+variables:
+  from_b: b-value
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "b.yaml"), []byte(profileB), 0644))
+
+	// C inherits from D
+	profileC := `description: Profile C
+parents:
+  - d
+bundles:
+  - c-bundle
+tags:
+  - c-tag
+variables:
+  from_c: c-value
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "c.yaml"), []byte(profileC), 0644))
+
+	// A inherits from both B and C (diamond)
+	profileA := `description: Profile A
+parents:
+  - b
+  - c
+bundles:
+  - a-bundle
+tags:
+  - a-tag
+variables:
+  from_a: a-value
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "a.yaml"), []byte(profileA), 0644))
+
+	loader := NewLoader([]string{tmpDir})
+
+	// This should succeed - not falsely detect circular reference
+	resolved, err := loader.ResolveProfile("a", nil)
+	require.NoError(t, err)
+
+	// Should have bundles from all profiles
+	assert.Contains(t, resolved.Bundles, "d-bundle")
+	assert.Contains(t, resolved.Bundles, "b-bundle")
+	assert.Contains(t, resolved.Bundles, "c-bundle")
+	assert.Contains(t, resolved.Bundles, "a-bundle")
+
+	// Should have tags from all profiles
+	assert.Contains(t, resolved.Tags, "d-tag")
+	assert.Contains(t, resolved.Tags, "b-tag")
+	assert.Contains(t, resolved.Tags, "c-tag")
+	assert.Contains(t, resolved.Tags, "a-tag")
+
+	// Should have variables from all profiles
+	assert.Equal(t, "d-value", resolved.Variables["from_d"])
+	assert.Equal(t, "b-value", resolved.Variables["from_b"])
+	assert.Equal(t, "c-value", resolved.Variables["from_c"])
+	assert.Equal(t, "a-value", resolved.Variables["from_a"])
+}
+
+// TestLoader_ResolveProfile_DepthLimit verifies that deeply nested inheritance is rejected.
+//
+// This prevents stack overflow from malformed configurations with extremely
+// deep inheritance chains.
+func TestLoader_ResolveProfile_DepthLimit(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a chain deeper than maxProfileDepth (64)
+	// We'll create 70 profiles: p0 -> p1 -> p2 -> ... -> p69
+	for i := 0; i < 70; i++ {
+		var content string
+		if i == 0 {
+			content = "description: Base profile"
+		} else {
+			content = "parents:\n  - p" + string(rune('0'+((i-1)/10))) + string(rune('0'+((i-1)%10)))
+		}
+		filename := "p" + string(rune('0'+(i/10))) + string(rune('0'+(i%10))) + ".yaml"
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, filename), []byte(content), 0644))
+	}
+
+	loader := NewLoader([]string{tmpDir})
+
+	// Resolving p69 requires 70 levels of depth, exceeding the limit of 64
+	_, err := loader.ResolveProfile("p69", nil)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "depth exceeds maximum")
+}
+
 // =============================================================================
 // ResolvedProfile.Merge Tests
 // =============================================================================

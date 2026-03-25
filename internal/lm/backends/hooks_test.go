@@ -705,3 +705,89 @@ func TestWriteSettings_WithFS(t *testing.T) {
 	assert.True(t, exists)
 }
 
+// =============================================================================
+// Schema Resilience Tests
+// =============================================================================
+// These tests verify that SCM gracefully handles malformed or incompatible
+// settings.json files, as Claude Code's schema is undocumented and may change.
+
+func TestClaudeCodeHookWriter_ResilienceToMalformedJSON(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	writer := &ClaudeCodeHookWriter{FS: fs}
+
+	// Create malformed settings.json
+	settingsPath := "/project/.claude/settings.json"
+	require.NoError(t, fs.MkdirAll("/project/.claude", 0755))
+	require.NoError(t, afero.WriteFile(fs, settingsPath, []byte("{ invalid json }"), 0644))
+
+	// WriteHooks should NOT fail - it should warn and continue
+	cfg := &config.HooksConfig{
+		Unified: config.UnifiedHooks{
+			SessionStart: []config.Hook{{Command: "./test.sh"}},
+		},
+	}
+	err := writer.WriteHooks(cfg, "/project")
+	require.NoError(t, err, "should not fail on malformed existing settings.json")
+
+	// Verify hooks were still written
+	data, err := afero.ReadFile(fs, settingsPath)
+	require.NoError(t, err)
+
+	var settings map[string]interface{}
+	require.NoError(t, json.Unmarshal(data, &settings))
+	assert.Contains(t, settings, "hooks", "should have hooks after writing")
+}
+
+func TestClaudeCodeHookWriter_CreatesBackupBeforeModifying(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	writer := &ClaudeCodeHookWriter{FS: fs}
+
+	// Create existing valid settings.json
+	settingsPath := "/project/.claude/settings.json"
+	require.NoError(t, fs.MkdirAll("/project/.claude", 0755))
+	originalContent := `{"existingKey": "originalValue"}`
+	require.NoError(t, afero.WriteFile(fs, settingsPath, []byte(originalContent), 0644))
+
+	// Write hooks
+	cfg := &config.HooksConfig{
+		Unified: config.UnifiedHooks{
+			SessionStart: []config.Hook{{Command: "./test.sh"}},
+		},
+	}
+	err := writer.WriteHooks(cfg, "/project")
+	require.NoError(t, err)
+
+	// Verify backup was created
+	backupPath := settingsPath + ".scm.bak"
+	exists, err := afero.Exists(fs, backupPath)
+	require.NoError(t, err)
+	assert.True(t, exists, "backup file should be created")
+
+	// Verify backup contains original content
+	backupData, err := afero.ReadFile(fs, backupPath)
+	require.NoError(t, err)
+	assert.Equal(t, originalContent, string(backupData), "backup should contain original content")
+}
+
+func TestClaudeCodeHookWriter_MCPConfigResilience(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	writer := &ClaudeCodeHookWriter{FS: fs}
+
+	// Create malformed .mcp.json
+	mcpPath := "/project/.mcp.json"
+	require.NoError(t, afero.WriteFile(fs, mcpPath, []byte("not valid json"), 0644))
+
+	// WriteHooks should NOT fail - it should warn and continue
+	cfg := &config.HooksConfig{}
+	err := writer.WriteHooks(cfg, "/project")
+	require.NoError(t, err, "should not fail on malformed .mcp.json")
+
+	// Verify MCP config was still written
+	data, err := afero.ReadFile(fs, mcpPath)
+	require.NoError(t, err)
+
+	var mcpConfig map[string]interface{}
+	require.NoError(t, json.Unmarshal(data, &mcpConfig))
+	assert.Contains(t, mcpConfig, "mcpServers", "should have mcpServers after writing")
+}
+

@@ -1195,6 +1195,50 @@ func TestLoader_LoadFile_InvalidYAML(t *testing.T) {
 	assert.Error(t, err, "invalid YAML should error")
 }
 
+// TestLoader_LoadFile_Caching verifies that bundles are cached after loading.
+// This optimization avoids redundant disk reads when the same bundle is
+// referenced multiple times (e.g., by multiple profiles).
+func TestLoader_LoadFile_Caching(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	bundleYAML := `version: "1.0"
+fragments:
+  test-frag:
+    content: Test content`
+	bundlePath := filepath.Join(tmpDir, "test.yaml")
+	err := os.WriteFile(bundlePath, []byte(bundleYAML), 0644)
+	require.NoError(t, err)
+
+	loader := NewLoader([]string{tmpDir}, false)
+
+	// First load
+	bundle1, err := loader.LoadFile(bundlePath)
+	require.NoError(t, err)
+	assert.Equal(t, "1.0", bundle1.Version)
+
+	// Modify file on disk
+	modifiedYAML := `version: "2.0"
+fragments:
+  test-frag:
+    content: Modified content`
+	err = os.WriteFile(bundlePath, []byte(modifiedYAML), 0644)
+	require.NoError(t, err)
+
+	// Second load should return cached version (version 1.0)
+	bundle2, err := loader.LoadFile(bundlePath)
+	require.NoError(t, err)
+	assert.Equal(t, "1.0", bundle2.Version, "should return cached bundle, not re-read from disk")
+
+	// Same pointer (cached)
+	assert.Same(t, bundle1, bundle2, "should return same bundle instance from cache")
+
+	// ClearCache and reload
+	loader.ClearCache()
+	bundle3, err := loader.LoadFile(bundlePath)
+	require.NoError(t, err)
+	assert.Equal(t, "2.0", bundle3.Version, "should read updated file after cache clear")
+}
+
 // TestLoader_NestedBundles verifies deep directory structures are traversed.
 // NON-OBVIOUS: Bundle names preserve the relative path structure.
 // A bundle at vendor/github.com/user/bundle.yaml gets name "vendor/github.com/user".

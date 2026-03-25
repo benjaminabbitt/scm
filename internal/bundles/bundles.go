@@ -274,6 +274,7 @@ type Loader struct {
 	searchDirs      []string
 	preferDistilled bool
 	fs              afero.Fs
+	cache           map[string]*Bundle // Cache of loaded bundles by path
 }
 
 // LoaderOption is a functional option for configuring a Loader.
@@ -287,11 +288,13 @@ func WithFS(fs afero.Fs) LoaderOption {
 }
 
 // NewLoader creates a bundle loader.
+// The loader caches loaded bundles in memory to avoid redundant disk reads.
 func NewLoader(searchDirs []string, preferDistilled bool, opts ...LoaderOption) *Loader {
 	l := &Loader{
 		searchDirs:      searchDirs,
 		preferDistilled: preferDistilled,
 		fs:              afero.NewOsFs(),
+		cache:           make(map[string]*Bundle),
 	}
 	for _, opt := range opts {
 		opt(l)
@@ -339,7 +342,14 @@ func (l *Loader) Find(name string) (string, error) {
 }
 
 // LoadFile reads a bundle from a specific path.
+// Results are cached to avoid redundant disk reads when the same bundle
+// is referenced multiple times (e.g., by multiple profiles).
 func (l *Loader) LoadFile(path string) (*Bundle, error) {
+	// Check cache first
+	if cached, ok := l.cache[path]; ok {
+		return cached, nil
+	}
+
 	data, err := afero.ReadFile(l.fs, path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read bundle: %w", err)
@@ -353,7 +363,16 @@ func (l *Loader) LoadFile(path string) (*Bundle, error) {
 	bundle.Path = path
 	bundle.Name = extractBundleName(path)
 
+	// Cache for future loads
+	l.cache[path] = bundle
+
 	return bundle, nil
+}
+
+// ClearCache clears the bundle cache.
+// This is useful when bundles may have changed on disk.
+func (l *Loader) ClearCache() {
+	l.cache = make(map[string]*Bundle)
 }
 
 // List returns all available bundles.
