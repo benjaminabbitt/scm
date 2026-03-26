@@ -111,11 +111,70 @@ func ensureGitignoreEntry(projectDir string) error {
 
 // initPrompts handles interactive user prompts during init.
 type initPrompts struct {
-	reader *bufio.Reader
+	reader   *bufio.Reader
+	oldState *term.State
 }
 
 func newInitPrompts() *initPrompts {
-	return &initPrompts{reader: bufio.NewReader(os.Stdin)}
+	p := &initPrompts{reader: bufio.NewReader(os.Stdin)}
+
+	// If stdin is a terminal, save state and ensure canonical mode
+	// This handles cases where parent process left terminal in raw mode
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		oldState, err := term.GetState(int(os.Stdin.Fd()))
+		if err == nil {
+			p.oldState = oldState
+			// Restore to cooked mode by making raw then restoring
+			// This is a workaround since there's no "MakeCooked" function
+			_, _ = term.MakeRaw(int(os.Stdin.Fd()))
+			_ = term.Restore(int(os.Stdin.Fd()), oldState)
+		}
+	}
+
+	return p
+}
+
+// restore restores terminal state if it was saved.
+func (p *initPrompts) restore() {
+	if p.oldState != nil {
+		_ = term.Restore(int(os.Stdin.Fd()), p.oldState)
+	}
+}
+
+// readCleanLine reads a line and strips terminal escape sequences and control chars.
+// This handles focus events (^[[I, ^[[O), cursor movements, etc.
+func (p *initPrompts) readCleanLine() (string, error) {
+	input, err := p.reader.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+
+	// Strip escape sequences (CSI sequences: ESC [ ... letter)
+	// Pattern: \x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]
+	var clean strings.Builder
+	i := 0
+	for i < len(input) {
+		if input[i] == '\x1b' && i+1 < len(input) && input[i+1] == '[' {
+			// Skip CSI sequence
+			i += 2
+			for i < len(input) {
+				c := input[i]
+				i++
+				// CSI sequence ends with a letter (0x40-0x7e)
+				if c >= 0x40 && c <= 0x7e {
+					break
+				}
+			}
+			continue
+		}
+		// Keep only printable ASCII and basic whitespace
+		if input[i] >= 0x20 && input[i] <= 0x7e {
+			clean.WriteByte(input[i])
+		}
+		i++
+	}
+
+	return strings.TrimSpace(clean.String()), nil
 }
 
 // primaryEngines are shown first in the selection menu (curated list).
@@ -198,13 +257,10 @@ func (p *initPrompts) promptEngineSelection() (string, error) {
 
 	for {
 		fmt.Print("\n> ")
-		input, err := p.reader.ReadString('\n')
+		input, err := p.readCleanLine()
 		if err != nil {
 			return "", err
 		}
-
-		// Strip all whitespace including \r\n
-		input = strings.TrimRight(input, "\r\n\t ")
 
 		// Empty input = use recommended (first primary)
 		if input == "" {
@@ -238,13 +294,11 @@ func (p *initPrompts) promptAllEngines(primary, secondary []string) (string, err
 
 	for {
 		fmt.Print("\n> ")
-		input, err := p.reader.ReadString('\n')
+		input, err := p.readCleanLine()
 		if err != nil {
 			return "", err
 		}
 
-		// Strip all whitespace including \r\n
-		input = strings.TrimRight(input, "\r\n\t ")
 		if input == "" {
 			continue
 		}
@@ -262,23 +316,23 @@ func (p *initPrompts) promptAllEngines(primary, secondary []string) (string, err
 // promptPersonalRepo optionally asks for a personal SCM GitHub repo.
 func (p *initPrompts) promptPersonalRepo() (string, error) {
 	fmt.Print("\nDo you have a personal SCM repository? (y/N): ")
-	input, err := p.reader.ReadString('\n')
+	input, err := p.readCleanLine()
 	if err != nil {
 		return "", err
 	}
 
-	input = strings.TrimRight(strings.ToLower(input), "\r\n\t ")
+	input = strings.ToLower(input)
 	if input != "y" && input != "yes" {
 		return "", nil
 	}
 
 	fmt.Print("Enter GitHub repo (e.g., 'myuser/scm-profiles'): ")
-	repo, err := p.reader.ReadString('\n')
+	repo, err := p.readCleanLine()
 	if err != nil {
 		return "", err
 	}
 
-	return strings.TrimRight(repo, "\r\n\t "), nil
+	return repo, nil
 }
 
 // generateConfig creates a config.yaml with the selected engine.
@@ -305,17 +359,25 @@ mcp:
 // profileDiscoveryPrompt is the prompt sent to the AI to help discover profiles.
 const profileDiscoveryPrompt = `Welcome to SCM! I'll help you discover and set up context profiles for your development workflow.
 
-I have access to MCP tools to browse available profiles and bundles. Let me help you find ones that match your stack.
+**First, scan the current directory** for project indicators like:
+- go.mod, Cargo.toml, package.json, pyproject.toml, requirements.txt
+- Dockerfile, docker-compose.yml, Makefile, justfile
+- .github/, .gitlab-ci.yml, and other CI/CD configs
+- Framework-specific files (next.config.js, vite.config.ts, etc.)
 
-**What I can do:**
-- Use browse_remote to explore profiles available in the scm-main repository
-- Help you choose profiles that match your languages/frameworks
-- Create or update your configuration with the selected profiles
+Based on what you find, suggest matching profiles from the scm-main remote.
 
-**What languages, frameworks, or tools do you primarily work with?**
-(e.g., "Go and TypeScript", "Python with FastAPI", "Rust")
+**Tools available:**
+- Use Bash/Glob to scan the directory structure
+- Use browse_remote to explore profiles in scm-main
+- Use search_remotes to find profiles matching specific tags or names
 
-If you'd prefer to skip this setup for now, just say "skip" and you can configure profiles manually later.`
+**After scanning**, present your findings:
+1. What project type/stack you detected
+2. Which profiles would be a good fit
+3. Ask the user to confirm or adjust your suggestions
+
+If you'd prefer to skip this setup, just say "skip" and configure profiles manually later.`
 
 // launchEngineWithPrompt starts the AI with the profile discovery prompt.
 func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
