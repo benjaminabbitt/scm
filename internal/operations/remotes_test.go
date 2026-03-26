@@ -415,6 +415,26 @@ func TestAddRemote_InvalidURLFormat(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid URL")
 }
 
+func TestAddRemote_ValidationFailed(t *testing.T) {
+	registry, _ := setupTestRegistry(t)
+
+	// Create a fetcher that returns false for ValidateRepo
+	fetcher := remote.NewMockFetcher()
+	fetcher.ValidRepos["test/scm"] = false
+
+	result, err := AddRemote(context.Background(), nil, AddRemoteRequest{
+		Name:     "test",
+		URL:      "https://github.com/test/scm",
+		Registry: registry,
+		Fetcher:  fetcher,
+	})
+
+	// Should succeed but include warning
+	require.NoError(t, err)
+	assert.Equal(t, "added", result.Status)
+	assert.Contains(t, result.Warning, "scm/v1")
+}
+
 func TestRemoveRemote_EmptyName(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
 
