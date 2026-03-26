@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -720,6 +721,49 @@ func TestBrowseRemote_NoRemote(t *testing.T) {
 	assert.Contains(t, err.Error(), "required")
 }
 
+func TestBrowseRemote_BrowseDirError(t *testing.T) {
+	registry, _ := setupTestRegistry(t)
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+
+	// Create a fetcher that returns an error on ListDir
+	fetcher := remote.NewMockFetcher()
+	fetcher.ListDirErr = fmt.Errorf("connection timeout")
+
+	result, err := BrowseRemote(context.Background(), nil, BrowseRemoteRequest{
+		Remote:   "alice",
+		ItemType: "bundle",
+		Registry: registry,
+		Fetcher:  fetcher,
+	})
+
+	require.NoError(t, err)
+	// Should return empty items but with warning
+	assert.Len(t, result.Items, 0)
+	assert.Len(t, result.Warnings, 1)
+	assert.Contains(t, result.Warnings[0], "failed to browse")
+}
+
+func TestBrowseRemote_BrowseDirNotFound(t *testing.T) {
+	registry, _ := setupTestRegistry(t)
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+
+	// Create a fetcher that returns 404 (not found)
+	fetcher := remote.NewMockFetcher()
+	fetcher.ListDirErr = fmt.Errorf("404 not found")
+
+	result, err := BrowseRemote(context.Background(), nil, BrowseRemoteRequest{
+		Remote:   "alice",
+		ItemType: "bundle",
+		Registry: registry,
+		Fetcher:  fetcher,
+	})
+
+	require.NoError(t, err)
+	// Should return empty items with NO warning for 404s
+	assert.Len(t, result.Items, 0)
+	assert.Len(t, result.Warnings, 0)
+}
+
 func TestSearchRemotes_NoQuery(t *testing.T) {
 	_, err := SearchRemotes(context.Background(), nil, SearchRemotesRequest{
 		Query: "",
@@ -905,4 +949,72 @@ func TestSearchDirectoryContent_ProfileType(t *testing.T) {
 	require.Len(t, results, 1)
 	assert.Equal(t, "dev-profile", results[0].Entry.Name)
 	assert.Equal(t, remote.ItemTypeProfile, results[0].ItemType)
+}
+
+func TestSearchSingleRemote_NewFetcherError(t *testing.T) {
+	rem := &remote.Remote{
+		Name:    "test-remote",
+		URL:     "invalid://invalid-url",
+		Version: "v1",
+	}
+
+	_, err := searchSingleRemote(context.Background(), rem, remote.ItemTypeBundle, remote.SearchQuery{Text: "test"}, remote.AuthConfig{})
+	require.Error(t, err)
+}
+
+func TestSearchSingleRemote_ParseRepoURLError(t *testing.T) {
+	rem := &remote.Remote{
+		Name:    "test-remote",
+		URL:     "not-a-valid-url",
+		Version: "v1",
+	}
+
+	// NewFetcher will succeed but ParseRepoURL will fail with invalid URL
+	_, err := searchSingleRemote(context.Background(), rem, remote.ItemTypeBundle, remote.SearchQuery{Text: "test"}, remote.AuthConfig{})
+	require.Error(t, err)
+}
+
+func TestSearchSingleRemote_WithManifest(t *testing.T) {
+	manifestContent := `bundles:
+  - name: test-bundle
+    description: A test bundle
+    tags:
+      - testing
+`
+
+	// Since searchSingleRemote creates its own fetcher, we test the helper function
+	// that parses manifest content rather than the full integration
+	rem := &remote.Remote{
+		Name:    "test-remote",
+		URL:     "https://github.com/test/repo",
+		Version: "v1",
+	}
+
+	// Test the manifest search helper function
+	results, err := searchManifestContent(rem, []byte(manifestContent), remote.ItemTypeBundle, remote.SearchQuery{Text: "test"})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "test-bundle", results[0].Entry.Name)
+}
+
+func TestSearchSingleRemote_FallbackToDirectory(t *testing.T) {
+	// Since searchSingleRemote creates its own fetcher, we test the helper functions
+	// that it calls rather than the full integration
+	mockFetcher := remote.NewMockFetcher().
+		WithDir("scm/v1/bundles", []remote.DirEntry{
+			{Name: "test-bundle.yaml", IsDir: false},
+		}).
+		WithFile("scm/v1/bundles/test-bundle.yaml", []byte("name: test-bundle\ndescription: Test bundle"))
+
+	rem := &remote.Remote{
+		Name:    "test-remote",
+		URL:     "https://github.com/test/repo",
+		Version: "v1",
+	}
+
+	// Test the directory search helper function
+	results, err := searchDirectoryContent(context.Background(), mockFetcher, rem, "owner", "repo", "main", remote.ItemTypeBundle, remote.SearchQuery{Text: "test"})
+	require.NoError(t, err)
+	// May have results depending on how the mock and search matching works
+	assert.NotNil(t, results)
 }

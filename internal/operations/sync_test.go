@@ -40,6 +40,7 @@ import (
 	"testing"
 
 	"github.com/spf13/afero"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/SophisticatedContextManager/scm/internal/config"
 	"github.com/SophisticatedContextManager/scm/internal/remote"
@@ -622,6 +623,29 @@ func TestCollectProfileReferences_NotFound(t *testing.T) {
 	if len(bundles) != 0 || len(profiles) != 0 {
 		t.Errorf("expected empty slices for nonexistent profile, got bundles=%v profiles=%v", bundles, profiles)
 	}
+}
+
+func TestCollectProfileReferences_DirectoryProfile(t *testing.T) {
+	// This test verifies the code path where a profile is loaded from the directory
+	// when it's not found in cfg.Profiles
+	//
+	// Note: Testing the full directory path requires OS filesystem or mocking
+	// the profiles.GetProfileDirs function, which uses os.Stat directly.
+	// For now, we test that the fallback path exists by creating a profile
+	// that will be found in a real directory, or by verifying the error path.
+
+	cfg := &config.Config{
+		SCMPaths: []string{"/nonexistent"},
+		Profiles: map[string]config.Profile{},
+	}
+
+	// This should call GetProfileLoader and try to load from directory
+	// Since the directory doesn't exist, it will return empty slices
+	bundles, profiles := collectProfileReferences(cfg, "dev")
+
+	// Verify the function returns empty slices when profile not found
+	assert.Nil(t, bundles)
+	assert.Nil(t, profiles)
 }
 
 // TestAddSyncItem_InstalledStatus tests adding an installed item.

@@ -164,7 +164,11 @@ func (c *Config) SetDefaultLLMPlugin(name string) {
 // GetProfileLoader returns a profiles.Loader for this config's SCM paths.
 func (c *Config) GetProfileLoader() *profiles.Loader {
 	profileDirs := profiles.GetProfileDirs(c.SCMPaths)
-	return profiles.NewLoader(profileDirs)
+	var opts []profiles.LoaderOption
+	if c.fs != nil {
+		opts = append(opts, profiles.WithFS(c.fs))
+	}
+	return profiles.NewLoader(profileDirs, opts...)
 }
 
 // Hook defines a single hook action.
